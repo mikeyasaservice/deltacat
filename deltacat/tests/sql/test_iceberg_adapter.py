@@ -56,6 +56,7 @@ class TestIcebergSQLAdapter(unittest.TestCase):
         adapter.catalog = mock_catalog
         
         table_def = Mock()
+        table_def.properties = {}  # Add empty properties dict
         self.assertTrue(adapter.is_iceberg_table(table_def))
         
         # Test with properties
@@ -95,7 +96,8 @@ class TestIcebergSQLAdapter(unittest.TestCase):
     @patch('deltacat.sql.iceberg_adapter.get_table')
     def test_register_iceberg_table(self, mock_get_table):
         """Test registering an Iceberg table with DuckDB."""
-        adapter = IcebergSQLAdapter(connection=self.connection)
+        # Create adapter without catalog to test basic flow
+        adapter = IcebergSQLAdapter(catalog_name=None, connection=self.connection)
         
         # Mock table definition
         table_def = Mock()
@@ -104,6 +106,7 @@ class TestIcebergSQLAdapter(unittest.TestCase):
         
         # Mock is_iceberg_table to return True
         adapter.is_iceberg_table = Mock(return_value=True)
+        adapter.get_iceberg_location = Mock(return_value="s3://bucket/table/metadata.json")
         
         # Register table (will fail without actual Iceberg file, but tests the logic)
         success = adapter.register_iceberg_table("test_table", "test_namespace", "test_alias")
@@ -123,7 +126,8 @@ class TestIcebergSQLAdapter(unittest.TestCase):
     @patch('deltacat.sql.iceberg_adapter.list_namespaces')
     def test_register_all_iceberg_tables(self, mock_list_ns, mock_list_tables):
         """Test registering all Iceberg tables."""
-        adapter = IcebergSQLAdapter(connection=self.connection)
+        # Create adapter without catalog to test basic flow
+        adapter = IcebergSQLAdapter(catalog_name=None, connection=self.connection)
         
         # Mock namespaces
         ns1 = Mock()
@@ -163,105 +167,109 @@ class TestIcebergSQLAdapter(unittest.TestCase):
         self.assertIsInstance(result, pa.Table)
         self.assertEqual(result['total'][0].as_py(), 60)
         
-    def test_time_travel_query_with_snapshot(self):
+    @patch.object(IcebergSQLAdapter, '_setup_iceberg_extension')
+    def test_time_travel_query_with_snapshot(self, mock_setup):
         """Test time travel query with snapshot ID."""
-        adapter = IcebergSQLAdapter(connection=self.connection)
+        # Create a mock connection instead of using real DuckDB
+        mock_connection = Mock()
+        mock_result = Mock()
+        mock_result.arrow.return_value = pa.table({'col': [1, 2, 3]})
+        mock_connection.execute.return_value = mock_result
         
-        # Mock the query execution
-        with patch.object(adapter.connection, 'execute') as mock_execute:
-            mock_result = Mock()
-            mock_result.arrow.return_value = pa.table({'col': [1, 2, 3]})
-            mock_execute.return_value = mock_result
-            
-            # Execute time travel query
-            result = adapter.time_travel_query("test_table", snapshot_id=12345)
-            
-            # Verify correct SQL was generated
-            expected_sql = """
-                SELECT * FROM iceberg_scan(
-                    'test_table',
-                    snapshot_id => 12345
-                )
-            """
-            mock_execute.assert_called_once()
-            actual_sql = mock_execute.call_args[0][0]
-            # Normalize whitespace for comparison
-            self.assertEqual(
-                ' '.join(actual_sql.split()),
-                ' '.join(expected_sql.split())
+        adapter = IcebergSQLAdapter(connection=mock_connection)
+        
+        # Execute time travel query
+        result = adapter.time_travel_query("test_table", snapshot_id=12345)
+        
+        # Verify correct SQL was generated
+        expected_sql = """
+            SELECT * FROM iceberg_scan(
+                'test_table',
+                snapshot_id => 12345
             )
+        """
+        mock_connection.execute.assert_called_once()
+        actual_sql = mock_connection.execute.call_args[0][0]
+        # Normalize whitespace for comparison
+        self.assertEqual(
+            ' '.join(actual_sql.split()),
+            ' '.join(expected_sql.split())
+        )
             
-    def test_time_travel_query_with_timestamp(self):
+    @patch.object(IcebergSQLAdapter, '_setup_iceberg_extension')
+    def test_time_travel_query_with_timestamp(self, mock_setup):
         """Test time travel query with timestamp."""
-        adapter = IcebergSQLAdapter(connection=self.connection)
+        # Create a mock connection instead of using real DuckDB
+        mock_connection = Mock()
+        mock_result = Mock()
+        mock_result.arrow.return_value = pa.table({'col': [1, 2, 3]})
+        mock_connection.execute.return_value = mock_result
         
-        # Mock the query execution
-        with patch.object(adapter.connection, 'execute') as mock_execute:
-            mock_result = Mock()
-            mock_result.arrow.return_value = pa.table({'col': [1, 2, 3]})
-            mock_execute.return_value = mock_result
-            
-            # Execute time travel query
-            result = adapter.time_travel_query("test_table", timestamp="2024-01-01 00:00:00")
-            
-            # Verify correct SQL was generated
-            expected_sql = """
-                SELECT * FROM iceberg_scan(
-                    'test_table',
-                    timestamp => '2024-01-01 00:00:00'::TIMESTAMP
-                )
-            """
-            mock_execute.assert_called_once()
-            actual_sql = mock_execute.call_args[0][0]
-            # Normalize whitespace for comparison
-            self.assertEqual(
-                ' '.join(actual_sql.split()),
-                ' '.join(expected_sql.split())
+        adapter = IcebergSQLAdapter(connection=mock_connection)
+        
+        # Execute time travel query
+        result = adapter.time_travel_query("test_table", timestamp="2024-01-01 00:00:00")
+        
+        # Verify correct SQL was generated
+        expected_sql = """
+            SELECT * FROM iceberg_scan(
+                'test_table',
+                timestamp => '2024-01-01 00:00:00'::TIMESTAMP
             )
+        """
+        mock_connection.execute.assert_called_once()
+        actual_sql = mock_connection.execute.call_args[0][0]
+        # Normalize whitespace for comparison
+        self.assertEqual(
+            ' '.join(actual_sql.split()),
+            ' '.join(expected_sql.split())
+        )
             
-    def test_get_table_snapshots(self):
+    @patch.object(IcebergSQLAdapter, '_setup_iceberg_extension')
+    def test_get_table_snapshots(self, mock_setup):
         """Test getting table snapshots."""
-        adapter = IcebergSQLAdapter(connection=self.connection)
+        # Create a mock connection
+        mock_connection = Mock()
+        mock_result = Mock()
+        mock_result.arrow.return_value = pa.table({
+            'snapshot_id': [1, 2, 3],
+            'timestamp': ['2024-01-01', '2024-01-02', '2024-01-03']
+        })
+        mock_connection.execute.return_value = mock_result
         
-        # Mock the query execution
-        with patch.object(adapter.connection, 'execute') as mock_execute:
-            mock_result = Mock()
-            mock_result.arrow.return_value = pa.table({
-                'snapshot_id': [1, 2, 3],
-                'timestamp': ['2024-01-01', '2024-01-02', '2024-01-03']
-            })
-            mock_execute.return_value = mock_result
+        adapter = IcebergSQLAdapter(connection=mock_connection)
+        
+        # Get snapshots
+        result = adapter.get_table_snapshots("test_table")
+        
+        # Verify
+        mock_connection.execute.assert_called_once()
+        self.assertIn("iceberg_snapshots", mock_connection.execute.call_args[0][0])
+        self.assertIsInstance(result, pa.Table)
             
-            # Get snapshots
-            result = adapter.get_table_snapshots("test_table")
-            
-            # Verify
-            mock_execute.assert_called_once()
-            self.assertIn("iceberg_snapshots", mock_execute.call_args[0][0])
-            self.assertIsInstance(result, pa.Table)
-            
-    def test_get_table_metadata(self):
+    @patch.object(IcebergSQLAdapter, '_setup_iceberg_extension')
+    def test_get_table_metadata(self, mock_setup):
         """Test getting table metadata."""
-        adapter = IcebergSQLAdapter(connection=self.connection)
+        # Create a mock connection
+        mock_connection = Mock()
+        mock_result = Mock()
+        mock_result.fetchall.return_value = [
+            ('location', 's3://bucket/table'),
+            ('format_version', '2')
+        ]
+        mock_connection.execute.return_value = mock_result
         
-        # Mock the query execution
-        with patch.object(adapter.connection, 'execute') as mock_execute:
-            mock_result = Mock()
-            mock_result.fetchall.return_value = [
-                ('location', 's3://bucket/table'),
-                ('format_version', '2')
-            ]
-            mock_execute.return_value = mock_result
-            
-            # Get metadata
-            result = adapter.get_table_metadata("test_table")
-            
-            # Verify
-            mock_execute.assert_called_once()
-            self.assertIn("iceberg_metadata", mock_execute.call_args[0][0])
-            self.assertIsInstance(result, dict)
-            self.assertEqual(result['location'], 's3://bucket/table')
-            self.assertEqual(result['format_version'], '2')
+        adapter = IcebergSQLAdapter(connection=mock_connection)
+        
+        # Get metadata
+        result = adapter.get_table_metadata("test_table")
+        
+        # Verify
+        mock_connection.execute.assert_called_once()
+        self.assertIn("iceberg_metadata", mock_connection.execute.call_args[0][0])
+        self.assertIsInstance(result, dict)
+        self.assertEqual(result['location'], 's3://bucket/table')
+        self.assertEqual(result['format_version'], '2')
 
 
 class TestIcebergIntegrationWithGateway(unittest.TestCase):

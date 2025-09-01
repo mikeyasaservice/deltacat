@@ -6,7 +6,7 @@ import duckdb
 import pyarrow as pa
 
 from deltacat import logs
-from deltacat.catalog import get_catalog
+from deltacat.catalog import get_catalog, get_table, list_namespaces, list_tables
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -72,8 +72,13 @@ class IcebergSQLAdapter:
             
         # Check for Iceberg-specific properties
         if hasattr(table_def, 'properties') and table_def.properties:
-            if 'table_type' in table_def.properties:
-                return table_def.properties['table_type'].lower() == 'iceberg'
+            # Handle dict-like properties
+            try:
+                if 'table_type' in table_def.properties:
+                    return table_def.properties['table_type'].lower() == 'iceberg'
+            except (TypeError, AttributeError):
+                # Properties might be a Mock or other non-dict type
+                pass
                 
         # Check for Iceberg metadata location
         if hasattr(table_def, 'metadata_location'):
@@ -91,11 +96,11 @@ class IcebergSQLAdapter:
             Path to Iceberg metadata.json file, or None
         """
         # Try metadata_location first (standard Iceberg)
-        if hasattr(table_def, 'metadata_location'):
+        if hasattr(table_def, 'metadata_location') and table_def.metadata_location:
             return table_def.metadata_location
             
         # Try table location + metadata.json
-        if hasattr(table_def.table, 'location'):
+        if hasattr(table_def, 'table') and hasattr(table_def.table, 'location'):
             base_location = table_def.table.location
             # Iceberg metadata is typically at location/metadata/[version]-metadata.json
             # For simplicity, we'll construct the path
@@ -127,7 +132,6 @@ class IcebergSQLAdapter:
         """
         try:
             # Get table definition from catalog
-            from deltacat.catalog import get_table
             table_def = get_table(
                 name=table_name,
                 namespace=namespace,
@@ -175,7 +179,6 @@ class IcebergSQLAdapter:
         
         try:
             # List all namespaces
-            from deltacat.catalog import list_namespaces, list_tables
             namespaces = list_namespaces(catalog=self.catalog_name)
             
             for namespace in namespaces.all_items():
