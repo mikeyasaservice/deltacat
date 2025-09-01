@@ -45,6 +45,7 @@ class TestTableFormatBase(unittest.TestCase):
             self.assertIn(method, abstract_methods)
 
 
+@patch('deltacat.storage.formats.delta.HAS_DELTA', True)
 class TestDeltaFormat(unittest.TestCase):
     """Test Delta Lake format implementation."""
     
@@ -106,7 +107,7 @@ class TestDeltaFormat(unittest.TestCase):
         mock_write_deltalake.assert_called_once_with(
             self.table_path,
             test_data,
-            mode='error'
+            mode='append'
         )
     
     @patch('deltacat.storage.formats.delta.write_deltalake')
@@ -180,7 +181,7 @@ class TestDeltaFormat(unittest.TestCase):
         result = delta_format.time_travel(timestamp=timestamp)
         
         self.assertIsInstance(result, pa.Table)
-        mock_delta_table.load_as_of.assert_called_once_with(timestamp)
+        mock_delta_table.load_as_of_timestamp.assert_called_once_with(timestamp)
     
     @patch('deltacat.storage.formats.delta.DeltaTable')
     def test_delta_get_history(self, mock_delta_table_class):
@@ -209,15 +210,21 @@ class TestDeltaFormat(unittest.TestCase):
         
         # Mock optimize operation
         mock_delta_table = Mock()
-        mock_optimize_result = {'num_files_added': 1, 'num_files_removed': 5}
-        mock_delta_table.optimize.compact.return_value = mock_optimize_result
+        mock_optimize = Mock()
+        mock_optimize.files_added = 1
+        mock_optimize.files_removed = 5
+        mock_optimize.bytes_added = 1000
+        mock_optimize.bytes_removed = 5000
+        mock_optimize.partitions_optimized = 2
+        mock_delta_table.optimize.return_value = mock_optimize
         mock_delta_table_class.return_value = mock_delta_table
         
         delta_format = DeltaFormat(self.table_path)
         result = delta_format.optimize()
         
-        self.assertIn('num_files_added', result)
-        mock_delta_table.optimize.compact.assert_called_once()
+        self.assertIn('files_added', result)
+        self.assertEqual(result['files_added'], 1)
+        mock_delta_table.optimize.assert_called_once()
     
     @patch('deltacat.storage.formats.delta.DeltaTable')
     def test_delta_vacuum(self, mock_delta_table_class):
@@ -226,7 +233,7 @@ class TestDeltaFormat(unittest.TestCase):
         
         # Mock vacuum operation
         mock_delta_table = Mock()
-        mock_vacuum_result = {'files_deleted': 10}
+        mock_vacuum_result = ['file1.parquet', 'file2.parquet']  # List of deleted files
         mock_delta_table.vacuum.return_value = mock_vacuum_result
         mock_delta_table_class.return_value = mock_delta_table
         
@@ -234,9 +241,14 @@ class TestDeltaFormat(unittest.TestCase):
         result = delta_format.vacuum(retention_hours=168)
         
         self.assertIn('files_deleted', result)
-        mock_delta_table.vacuum.assert_called_once_with(168)
+        self.assertEqual(result['files_deleted'], 2)
+        mock_delta_table.vacuum.assert_called_once_with(
+            retention_hours=168,
+            dry_run=False
+        )
 
 
+@patch('deltacat.storage.formats.iceberg.HAS_ICEBERG', True)
 class TestIcebergFormat(unittest.TestCase):
     """Test Apache Iceberg format implementation."""
     
@@ -448,6 +460,8 @@ class TestParquetFormat(unittest.TestCase):
             parquet_format.get_history()
 
 
+@patch('deltacat.storage.formats.delta.HAS_DELTA', True)
+@patch('deltacat.storage.formats.iceberg.HAS_ICEBERG', True)
 class TestUnifiedFormatInterface(unittest.TestCase):
     """Test the unified format interface that auto-detects formats."""
     

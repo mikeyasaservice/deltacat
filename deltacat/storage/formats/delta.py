@@ -6,6 +6,15 @@ import pyarrow as pa
 import pandas as pd
 from deltacat.storage.formats.base import TableFormat, TableMetadata
 
+# Try to import Delta Lake dependencies
+try:
+    from deltalake import DeltaTable, write_deltalake
+    HAS_DELTA = True
+except ImportError:
+    HAS_DELTA = False
+    DeltaTable = None
+    write_deltalake = None
+
 
 class DeltaFormat(TableFormat):
     """Delta Lake table format implementation.
@@ -21,6 +30,11 @@ class DeltaFormat(TableFormat):
             path: Path to Delta table location
             **kwargs: Delta-specific configuration options
         """
+        if not HAS_DELTA:
+            raise ImportError(
+                "Delta Lake support requires 'deltalake' package.\n"
+                "Install with: pip install deltalake"
+            )
         super().__init__(path, **kwargs)
         self._table = None
         self._initialized = False
@@ -29,7 +43,6 @@ class DeltaFormat(TableFormat):
         """Lazy initialization of Delta table."""
         if not self._initialized:
             try:
-                from deltalake import DeltaTable
                 self._table = DeltaTable(self.path)
                 self._initialized = True
             except Exception:
@@ -92,19 +105,21 @@ class DeltaFormat(TableFormat):
             partition_by: Columns to partition by
             **kwargs: Additional Delta write options
         """
-        from deltalake import write_deltalake
-        
         # Convert pandas to PyArrow if needed
         if isinstance(data, pd.DataFrame):
             data = pa.Table.from_pandas(data)
+        
+        # Build kwargs for write_deltalake
+        write_kwargs = {'mode': mode}
+        if partition_by is not None:
+            write_kwargs['partition_by'] = partition_by
+        write_kwargs.update(kwargs)
         
         # Write to Delta table
         write_deltalake(
             self.path,
             data,
-            mode=mode,
-            partition_by=partition_by,
-            **kwargs
+            **write_kwargs
         )
         
         # Reinitialize to pick up changes
@@ -179,7 +194,11 @@ class DeltaFormat(TableFormat):
         
         history = self._table.history(limit=limit)
         
-        # Convert to list of dicts
+        # If history is already a list, return it
+        if isinstance(history, list):
+            return history
+        
+        # Otherwise convert to list of dicts
         return history.to_dicts()
     
     def time_travel(self,
@@ -263,7 +282,6 @@ class DeltaFormat(TableFormat):
             True if table exists, False otherwise
         """
         try:
-            from deltalake import DeltaTable
             DeltaTable(self.path)
             return True
         except Exception:

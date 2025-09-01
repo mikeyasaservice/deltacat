@@ -6,6 +6,20 @@ import pyarrow as pa
 import pandas as pd
 from deltacat.storage.formats.base import TableFormat, TableMetadata
 
+# Try to import Iceberg dependencies
+try:
+    from pyiceberg.catalog import load_catalog
+    from pyiceberg.table import Table
+    from pyiceberg import create_table
+    from pyiceberg.table.maintenance import compact
+    HAS_ICEBERG = True
+except ImportError:
+    HAS_ICEBERG = False
+    load_catalog = None
+    Table = None
+    create_table = None
+    compact = None
+
 
 class IcebergFormat(TableFormat):
     """Apache Iceberg table format implementation.
@@ -22,6 +36,11 @@ class IcebergFormat(TableFormat):
             catalog: Catalog type ('glue', 'hive', 'rest', etc.)
             **kwargs: Iceberg-specific configuration
         """
+        if not HAS_ICEBERG:
+            raise ImportError(
+                "Iceberg support requires 'pyiceberg' package.\n"
+                "Install with: pip install pyiceberg"
+            )
         super().__init__(path, **kwargs)
         self.catalog_type = catalog or 'glue'
         self._catalog = None
@@ -32,9 +51,6 @@ class IcebergFormat(TableFormat):
         """Lazy initialization of Iceberg catalog and table."""
         if not self._initialized:
             try:
-                from pyiceberg.catalog import load_catalog
-                from pyiceberg.table import Table
-                
                 # Load catalog based on type
                 if self.catalog_type == 'glue':
                     self._catalog = load_catalog(
@@ -122,8 +138,6 @@ class IcebergFormat(TableFormat):
         
         if not self._table:
             # Create new table
-            from pyiceberg import create_table
-            
             if '.' in self.path:
                 namespace, table_name = self.path.rsplit('.', 1)
                 self._table = create_table(
@@ -275,8 +289,6 @@ class IcebergFormat(TableFormat):
             raise ValueError(f"Iceberg table not found: {self.path}")
         
         # Perform compaction
-        from pyiceberg.table.maintenance import compact
-        
         result = compact(
             self._table,
             target_size_bytes=kwargs.get('target_size', 134217728),  # 128MB default
