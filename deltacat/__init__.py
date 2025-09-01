@@ -81,6 +81,18 @@ if importlib.util.find_spec("pyiceberg") is not None:
         "IcebergCatalog",
     ]
 
+__daft__ = []
+if importlib.util.find_spec("daft") is not None:
+    from deltacat.catalog.daft import (  # noqa: F401
+        DaftCatalog,
+        DaftTable,
+    )
+
+    __daft__ = [
+        "DaftCatalog",
+        "DaftTable",
+    ]
+
 deltacat.logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 __version__ = "2.0.0b12"
@@ -148,3 +160,4 @@ __all__ = [
 ]
 
 __all__ += __iceberg__
+__all__ += __daft__
