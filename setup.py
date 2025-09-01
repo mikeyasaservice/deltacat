@@ -20,9 +20,41 @@ def find_version(*paths):
         raise RuntimeError(f"Failed to find version at: {version_file_path}")
 
 
+def parse_requirements(filename):
+    """Parse a requirements file, ignoring comments and empty lines."""
+    requirements = []
+    with open(os.path.join(ROOT_DIR, filename), "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            # Skip comments, empty lines, and lines starting with extras markers
+            if line and not line.startswith("#") and not line.startswith("-"):
+                # Skip lines that are just section markers like "# deltacat[iceberg]"
+                if "deltacat[" not in line:
+                    requirements.append(line)
+    return requirements
+
+
 with open(os.path.join(ROOT_DIR, "README.md"), "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
+
+# Parse base requirements from requirements.txt
+base_requirements = parse_requirements("requirements.txt")
+
+# Filter out development-only dependencies and extras that should not be in install_requires
+exclude_packages = {
+    "pytest",  # Development only
+    "databricks-sdk",  # Not in original install_requires
+    "deltalake",  # Not in original install_requires
+    "msgpack",  # Not in original install_requires
+    "pyiceberg",  # This is in extras_require, not install_requires
+    "s3fs",  # This is in extras_require, not install_requires
+}
+
+install_requirements = [
+    req for req in base_requirements 
+    if not any(req.startswith(pkg) for pkg in exclude_packages)
+]
 
 setuptools.setup(
     name="deltacat",
@@ -46,31 +78,7 @@ setuptools.setup(
         # installation times when included (due to boto version conflicts)
         "s3fs": ["s3fs == 2025.3.2"],
     },
-    install_requires=[
-        # any changes here should also be reflected in requirements.txt
-        # AWS
-        "aws-embedded-metrics == 3.2.0",
-        "boto3 ~= 1.34",
-        # GCP
-        "google-cloud-storage",
-        "gcsfs == 2025.3.2",
-        # Misc
-        "daft == 0.4.15",
-        "duckdb >= 1.1.0",
-        "intervaltree == 3.1.0",
-        "numpy >= 1.26.0",
-        "pandas == 2.2.3",
-        "polars == 1.28.1",
-        # Updated to pyarrow 19.0.1 for compatibility with Daft
-        "pyarrow >= 19.0.1",
-        "pydantic!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,!=2.4.*,<3",
-        "pymemcache == 4.0.0",
-        "ray[default] == 2.46.0",
-        "tenacity == 8.2.3",
-        "typing-extensions == 4.6.1",
-        "redis == 5.0.0",
-        "schedule == 1.2.0",
-    ],
+    install_requires=install_requirements,
     setup_requires=["wheel"],
     package_data={
         "compute/metastats": ["*.yaml"],

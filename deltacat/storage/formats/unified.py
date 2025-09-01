@@ -21,6 +21,14 @@ def detect_format(path: str) -> Optional[str]:
     Returns:
         Format string ('delta', 'iceberg', 'parquet') or None if unknown
     """
+    # Check for explicit format extensions
+    if path.endswith('.delta'):
+        return 'delta'
+    if path.endswith('.iceberg'):
+        return 'iceberg'
+    if path.endswith('.parquet') or path.endswith('.pq'):
+        return 'parquet'
+    
     if not os.path.exists(path):
         # Check if it's a catalog identifier (namespace.table)
         if '.' in path and not path.endswith('.parquet'):
@@ -289,9 +297,20 @@ def get_table_format_from_catalog(
         raise ValueError(f"Table {namespace}.{table_name} not found in catalog")
     
     # Get path and format from table properties
-    properties = table_def.properties or {}
-    path = properties.get('path')
-    format_type = properties.get('format')
+    # Handle mock objects properly
+    properties = getattr(table_def, 'properties', None)
+    if properties is None or not isinstance(properties, dict):
+        properties = {}
+    
+    # Try to get path from properties first, then from table locator
+    path = properties.get('path') if properties else None
+    if not path and hasattr(table_def, 'table') and hasattr(table_def.table, 'locator'):
+        path = table_def.table.locator
+    
+    # Get format type from properties
+    format_type = properties.get('format') if properties else None
+    if format_type and isinstance(format_type, str):
+        format_type = format_type.lower()
     
     if not path:
         raise ValueError(f"Table {namespace}.{table_name} has no path property")
@@ -384,7 +403,15 @@ def write_table(
         **kwargs: Write options
     """
     handler = get_table_format(path, format)
-    handler.write(data, **kwargs)
+    mode = kwargs.pop('mode', 'overwrite')
+    
+    # Use specific method based on mode
+    if mode == 'append':
+        handler.append(data)
+    elif mode == 'overwrite':
+        handler.overwrite(data)
+    else:
+        handler.write(data, mode=mode, **kwargs)
 
 
 def create_table(

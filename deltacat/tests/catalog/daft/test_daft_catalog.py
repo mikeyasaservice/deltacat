@@ -14,6 +14,8 @@ try:
     from deltacat.experimental.catalog.iceberg import impl as IcebergCatalog
     from deltacat.experimental.catalog.iceberg import IcebergCatalogConfig
     from pyiceberg.catalog import CatalogType
+    # Also check for SQLAlchemy which is needed for SQL catalog
+    import sqlalchemy
     ICEBERG_AVAILABLE = True
 except ImportError:
     ICEBERG_AVAILABLE = False
@@ -81,7 +83,7 @@ class TestCatalogIntegration:
             daft_catalog.get_table(Identifier("nonexistent_table"))
 
 
-@pytest.mark.skipif(not ICEBERG_AVAILABLE, reason="Iceberg not available")
+@pytest.mark.skipif(not ICEBERG_AVAILABLE, reason="Iceberg or SQLAlchemy not installed")
 class TestIcebergCatalogIntegration:
     @classmethod
     def setup_method(cls):

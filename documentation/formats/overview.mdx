@@ -1,0 +1,257 @@
+---
+title: Table Format Abstractions
+description: Unified interface for working with Delta, Iceberg, and Parquet formats
+---
+
+# Table Format Abstractions
+
+DeltaCAT provides a unified abstraction layer for working with different table formats, allowing you to seamlessly switch between Delta Lake, Apache Iceberg, and Parquet without changing your application code.
+
+## Overview
+
+The table format abstraction layer enables:
+- **Format-agnostic operations**: Write once, run on any format
+- **Automatic format detection**: DeltaCAT identifies table formats automatically
+- **Format conversion**: Transform tables between formats
+- **Consistent API**: Same interface regardless of underlying format
+
+## Supported Formats
+
+<CardGroup cols={3}>
+  <Card title="Apache Iceberg" icon="snowflake">
+    Full-featured table format with time travel, schema evolution, and hidden partitioning
+  </Card>
+  <Card title="Delta Lake" icon="triangle">
+    ACID transactions, change data feed, and streaming support (coming soon)
+  </Card>
+  <Card title="Parquet" icon="file">
+    Simple columnar format with high compression and wide compatibility
+  </Card>
+</CardGroup>
+
+## Unified Interface
+
+### Basic Usage
+
+```python
+from deltacat.storage.formats import UnifiedTableInterface
+
+# Create table interface (format detected automatically)
+table = UnifiedTableInterface("s3://bucket/my-table")
+
+# Read data (works for any format)
+df = table.read()
+
+# Write data (format-specific optimizations applied)
+table.write(df, mode="append")
+
+# Get metadata (format-agnostic)
+metadata = table.get_metadata()
+print(f"Format: {metadata.format}")
+print(f"Row count: {metadata.row_count}")
+```
+
+### Format Detection
+
+DeltaCAT automatically detects table formats:
+
+```python
+from deltacat.storage.formats import detect_format
+
+# Detect format from path
+format_type = detect_format("s3://bucket/iceberg-table")
+print(f"Detected format: {format_type}")  # Output: "iceberg"
+
+# Explicit format specification
+table = UnifiedTableInterface(
+    "s3://bucket/data",
+    format="parquet"  # Override auto-detection
+)
+```
+
+### Format-Specific Features
+
+Access format-specific capabilities when needed:
+
+```python
+from deltacat.storage.formats import get_table_format
+
+# Get format-specific handler
+iceberg_table = get_table_format("iceberg", "s3://bucket/table")
+
+# Use Iceberg-specific features
+iceberg_table.time_travel(timestamp="2024-01-01T00:00:00")
+iceberg_table.expire_snapshots(older_than="2024-01-01")
+
+# Delta-specific features (when available)
+delta_table = get_table_format("delta", "s3://bucket/delta-table")
+delta_table.vacuum()
+delta_table.get_change_feed()
+```
+
+## Format Comparison
+
+| Feature | Iceberg | Delta | Parquet |
+|---------|---------|-------|---------|
+| **ACID Transactions** | ✅ | ✅ | ❌ |
+| **Schema Evolution** | ✅ | ✅ | ❌ |
+| **Time Travel** | ✅ | ✅ | ❌ |
+| **Hidden Partitioning** | ✅ | ❌ | ❌ |
+| **Column Statistics** | ✅ | ✅ | Limited |
+| **Streaming Support** | ✅ | ✅ | ❌ |
+| **File Size** | Larger | Medium | Smallest |
+| **Query Performance** | Excellent | Excellent | Good |
+| **Write Performance** | Good | Excellent | Excellent |
+
+## Format Conversion
+
+Convert tables between formats:
+
+```python
+from deltacat.storage.formats import convert_format
+
+# Convert Parquet to Iceberg
+convert_format(
+    source="s3://bucket/parquet-table",
+    target="s3://bucket/iceberg-table",
+    target_format="iceberg",
+    partition_by=["year", "month"]
+)
+
+# Convert with schema evolution
+convert_format(
+    source="s3://bucket/old-table",
+    target="s3://bucket/new-table",
+    target_format="iceberg",
+    schema_transforms=[
+        ("rename", "old_col", "new_col"),
+        ("add", "created_at", "timestamp"),
+        ("drop", "deprecated_col")
+    ]
+)
+```
+
+## TableFormat Base Class
+
+All format implementations inherit from the `TableFormat` base class:
+
+```python
+from deltacat.storage.formats.base import TableFormat, TableMetadata
+
+class CustomFormat(TableFormat):
+    """Custom table format implementation."""
+    
+    def read(self, columns=None, filter=None, version=None):
+        # Implement read logic
+        pass
+    
+    def write(self, data, mode='append', partition_by=None):
+        # Implement write logic
+        pass
+    
+    def get_metadata(self):
+        return TableMetadata(
+            format="custom",
+            location=self.path,
+            # ... other metadata
+        )
+```
+
+## Best Practices
+
+### Choosing a Format
+
+**Use Iceberg when:**
+- You need time travel and rollback capabilities
+- Schema evolution is frequent
+- You have complex partitioning requirements
+- Working with large analytical workloads
+
+**Use Delta when:**
+- You need streaming and batch in one system
+- Change data capture is required
+- You're already in the Databricks ecosystem
+
+**Use Parquet when:**
+- Simplicity is priority
+- You need maximum compatibility
+- Working with immutable datasets
+- Storage cost is a primary concern
+
+### Performance Optimization
+
+```python
+# Optimize writes with format-specific options
+table = UnifiedTableInterface("s3://bucket/table")
+
+# Iceberg: Use sorted writes for better compression
+table.write(
+    data,
+    sort_by=["date", "user_id"],
+    target_file_size="512MB"
+)
+
+# Parquet: Optimize compression
+table.write(
+    data,
+    compression="snappy",
+    row_group_size=100000
+)
+```
+
+### Migration Strategy
+
+1. **Start with Parquet** for simple use cases
+2. **Migrate to Iceberg** when you need:
+   - ACID guarantees
+   - Schema evolution
+   - Time travel
+3. **Consider Delta** for streaming workloads
+
+## API Reference
+
+### Core Functions
+
+```python
+# Format detection
+format_type = detect_format(path: str) -> str
+
+# Get format handler
+handler = get_table_format(
+    format: str,
+    path: str,
+    **config
+) -> TableFormat
+
+# Convert between formats
+convert_format(
+    source: str,
+    target: str,
+    target_format: str,
+    **options
+) -> None
+
+# Unified interface
+table = UnifiedTableInterface(
+    path: str,
+    format: Optional[str] = None,
+    **config
+)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Iceberg Format" icon="snowflake" href="/formats/iceberg">
+    Deep dive into Apache Iceberg
+  </Card>
+  <Card title="Delta Format" icon="triangle" href="/formats/delta">
+    Learn about Delta Lake integration
+  </Card>
+  <Card title="Format Conversion" icon="arrows-rotate" href="/formats/conversion">
+    Convert between table formats
+  </Card>
+  <Card title="Storage Guide" icon="database" href="/concepts/storage">
+    Understand storage architecture
+  </Card>
+</CardGroup>

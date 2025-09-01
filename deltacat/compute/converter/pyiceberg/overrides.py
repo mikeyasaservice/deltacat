@@ -237,7 +237,6 @@ def fetch_all_bucket_files(
                     data_scan.io,
                     manifest,
                     partition_evaluators[manifest.partition_spec_id],
-                    residual_evaluators[manifest.partition_spec_id],
                     data_scan._build_metrics_evaluator(),
                 )
                 for manifest in manifests

@@ -271,6 +271,60 @@ class DaftCatalog(Catalog):
 
         return DeltaCATSchema.of(schema=schema.to_pyarrow_schema())
 
+    ###
+    # Private abstract method implementations
+    # These are required by the Daft Catalog base class
+    ###
+    
+    def _create_namespace(self, identifier: Identifier | str):
+        """Private method for creating namespace - delegates to public method."""
+        return self.create_namespace(identifier)
+    
+    def _create_table(self, identifier: Identifier | str, source: Schema | DataFrame, **kwargs) -> Table:
+        """Private method for creating table - delegates to public method."""
+        return self.create_table(identifier, source, **kwargs)
+    
+    def _drop_namespace(self, identifier: Identifier | str):
+        """Private method for dropping namespace - delegates to public method."""
+        return self.drop_namespace(identifier)
+    
+    def _drop_table(self, identifier: Identifier | str):
+        """Private method for dropping table - delegates to public method."""
+        return self.drop_table(identifier)
+    
+    def _get_table(self, identifier: Identifier | str, **kwargs) -> Table:
+        """Private method for getting table - delegates to public method."""
+        return self.get_table(identifier, **kwargs)
+    
+    def _has_namespace(self, identifier: Identifier | str) -> bool:
+        """Check if namespace exists."""
+        if isinstance(identifier, Identifier):
+            identifier = str(identifier)
+        
+        try:
+            # Check if we can list tables in this namespace
+            from deltacat.catalog import list_tables as dc_list_tables
+            result = dc_list_tables(namespace=identifier, catalog=self.dc_catalog)
+            return True
+        except:
+            return False
+    
+    def _has_table(self, identifier: Identifier | str) -> bool:
+        """Check if table exists."""
+        try:
+            self.get_table(identifier)
+            return True
+        except:
+            return False
+    
+    def _list_namespaces(self, pattern: str | None = None) -> list[Identifier]:
+        """Private method for listing namespaces - delegates to public method."""
+        return self.list_namespaces(pattern)
+    
+    def _list_tables(self, pattern: str | None = None) -> list[str]:
+        """Private method for listing tables - delegates to public method."""
+        return self.list_tables(pattern)
+
 
 class DaftTable(Table):
     """
@@ -304,3 +358,26 @@ class DaftTable(Table):
 
     def write(self, df: DataFrame | object, mode: str = "append", **options):
         raise NotImplementedError("Not implemented")
+    
+    def append(self, df: DataFrame | object, **options):
+        """Append data to the table."""
+        self.write(df, mode="append", **options)
+    
+    def overwrite(self, df: DataFrame | object, **options):
+        """Overwrite the table with new data."""
+        self.write(df, mode="overwrite", **options)
+    
+    def schema(self) -> Schema:
+        """Return the table schema."""
+        # Convert DeltaCAT schema to Daft schema
+        if self._inner.table_version.properties.schema:
+            dc_schema = self._inner.table_version.properties.schema
+            # Convert to PyArrow schema first, then to Daft schema
+            pa_schema = dc_schema.to_pyarrow_schema()
+            from daft import Schema as DaftSchema
+            return DaftSchema.from_pyarrow_schema(pa_schema)
+        else:
+            # Return empty schema if none exists
+            from daft import Schema as DaftSchema
+            import pyarrow as pa
+            return DaftSchema.from_pyarrow_schema(pa.schema([]))

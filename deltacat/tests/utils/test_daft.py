@@ -170,7 +170,7 @@ class TestDaftS3FilesToDataFrame(unittest.TestCase):
             uris=[self.MVP_PATH],
             content_encoding=ContentEncoding.IDENTITY.value,
             content_type=ContentType.PARQUET.value,
-            ray_init_options={"local_mode": True, "ignore_reinit_error": True},
+            ray_init_options={"ignore_reinit_error": True},
         )
 
         table = df.to_arrow()
@@ -182,7 +182,7 @@ class TestDaftS3FilesToDataFrame(unittest.TestCase):
             uris=[self.MVP_PATH],
             content_encoding=ContentEncoding.IDENTITY.value,
             content_type=ContentType.PARQUET.value,
-            ray_init_options={"local_mode": True, "ignore_reinit_error": True},
+            ray_init_options={"ignore_reinit_error": True},
         )
 
         self.assertRaises(RuntimeError, lambda: len(df))
@@ -197,7 +197,7 @@ class TestDaftS3FilesToDataFrame(unittest.TestCase):
                 uris=[self.MVP_PATH],
                 content_encoding=ContentEncoding.IDENTITY.value,
                 content_type=ContentType.UNESCAPED_TSV.value,
-                ray_init_options={"local_mode": True, "ignore_reinit_error": True},
+                ray_init_options={"ignore_reinit_error": True},
             ),
         )
 
@@ -210,7 +210,7 @@ class TestFilesToDataFrame(unittest.TestCase):
             uris=[self.MVP_PATH],
             content_encoding=ContentEncoding.IDENTITY.value,
             content_type=ContentType.PARQUET.value,
-            ray_init_options={"local_mode": True, "ignore_reinit_error": True},
+            ray_init_options={"ignore_reinit_error": True},
         )
 
         table = df.to_arrow()
@@ -223,7 +223,7 @@ class TestFilesToDataFrame(unittest.TestCase):
             content_encoding=ContentEncoding.IDENTITY.value,
             content_type=ContentType.PARQUET.value,
             include_columns=["b"],
-            ray_init_options={"local_mode": True, "ignore_reinit_error": True},
+            ray_init_options={"ignore_reinit_error": True},
         )
 
         table = df.to_arrow()
@@ -235,7 +235,7 @@ class TestFilesToDataFrame(unittest.TestCase):
             uris=[self.MVP_PATH],
             content_encoding=ContentEncoding.IDENTITY.value,
             content_type=ContentType.PARQUET.value,
-            ray_init_options={"local_mode": True, "ignore_reinit_error": True},
+            ray_init_options={"ignore_reinit_error": True},
         )
 
         # Should raise RuntimeError because df is not materialized yet
@@ -252,7 +252,7 @@ class TestFilesToDataFrame(unittest.TestCase):
                 uris=[self.MVP_PATH],
                 content_encoding=ContentEncoding.IDENTITY.value,
                 content_type=ContentType.UNESCAPED_TSV.value,
-                ray_init_options={"local_mode": True, "ignore_reinit_error": True},
+                ray_init_options={"ignore_reinit_error": True},
             ),
         )
 
@@ -263,7 +263,7 @@ class TestFilesToDataFrame(unittest.TestCase):
                 uris=[self.MVP_PATH],
                 content_encoding=ContentEncoding.GZIP.value,
                 content_type=ContentType.PARQUET.value,
-                ray_init_options={"local_mode": True, "ignore_reinit_error": True},
+                ray_init_options={"ignore_reinit_error": True},
             ),
         )
 
@@ -273,7 +273,7 @@ class TestFilesToDataFrame(unittest.TestCase):
             uris=[self.MVP_PATH],
             content_encoding=ContentEncoding.IDENTITY.value,
             content_type=ContentType.PARQUET.value,
-            ray_init_options={"local_mode": True, "ignore_reinit_error": True},
+            ray_init_options={"ignore_reinit_error": True},
             # Custom kwarg that should be passed to daft.read_parquet
             coerce_int96_timestamp_unit="ns",
         )
@@ -288,7 +288,7 @@ class TestFilesToDataFrame(unittest.TestCase):
             uris=[self.MVP_PATH],
             content_encoding=ContentEncoding.IDENTITY.value,
             content_type=ContentType.PARQUET.value,
-            ray_init_options={"local_mode": True, "ignore_reinit_error": True},
+            ray_init_options={"ignore_reinit_error": True},
             # io_config=None should work fine for local files
             io_config=None,
         )

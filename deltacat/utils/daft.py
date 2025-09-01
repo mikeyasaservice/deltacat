@@ -1,16 +1,30 @@
 import logging
 from typing import Optional, List, Any, Dict, Callable, Iterator
 
-from daft.daft import (
-    StorageConfig,
-    PartitionField,
-    Pushdowns as DaftRustPushdowns,
-    ScanTask,
-    FileFormatConfig,
-    ParquetSourceConfig,
-    PartitionTransform as DaftTransform,
-    PartitionField as DaftPartitionField,
-)
+# Handle different versions of daft that may have different naming
+try:
+    from daft.daft import (
+        StorageConfig,
+        PartitionField,
+        Pushdowns as DaftRustPushdowns,
+        ScanTask,
+        FileFormatConfig,
+        ParquetSourceConfig,
+        PartitionTransform as DaftTransform,
+        PartitionField as DaftPartitionField,
+    )
+except ImportError:
+    # Try alternate naming with Py prefix
+    from daft.daft import (
+        StorageConfig,
+        PyPartitionField as PartitionField,
+        PyPushdowns as DaftRustPushdowns,
+        ScanTask,
+        FileFormatConfig,
+        ParquetSourceConfig,
+        PyPartitionTransform as DaftTransform,
+        PyPartitionField as DaftPartitionField,
+    )
 from daft.expressions import Expression as DaftExpression
 from daft.expressions.visitor import PredicateVisitor
 from pyarrow import Field as PaField

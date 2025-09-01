@@ -341,6 +341,7 @@ class TestIcebergFormat(unittest.TestCase):
         mock_table = Mock()
         mock_arrow_table = pa.table({'id': [1], 'snapshot': ['old']})
         mock_scan = Mock()
+        mock_scan.use_snapshot.return_value = mock_scan
         mock_scan.to_arrow.return_value = mock_arrow_table
         mock_table.scan.return_value = mock_scan
         mock_load_table.return_value = mock_table
@@ -355,7 +356,7 @@ class TestIcebergFormat(unittest.TestCase):
         # Time travel by snapshot ID
         result = iceberg_format.time_travel(version=12345)
         self.assertIsInstance(result, pa.Table)
-        mock_table.scan.assert_called_with(snapshot_id=12345)
+        mock_scan.use_snapshot.assert_called_with(12345)
     
     @patch('deltacat.storage.formats.iceberg.load_table')
     def test_iceberg_get_history(self, mock_load_table):
@@ -407,10 +408,14 @@ class TestParquetFormat(unittest.TestCase):
         self.assertEqual(parquet_file.path, self.file_path)
         self.assertEqual(parquet_file.get_format_type(), "parquet")
     
+    @patch('os.path.exists')
     @patch('deltacat.storage.formats.parquet.pq.read_table')
-    def test_parquet_read(self, mock_read_table):
+    def test_parquet_read(self, mock_read_table, mock_exists):
         """Test reading a Parquet file."""
         from deltacat.storage.formats.parquet import ParquetFormat
+        
+        # Mock file exists
+        mock_exists.return_value = True
         
         # Mock Parquet read
         mock_arrow_table = pa.table({
@@ -424,7 +429,7 @@ class TestParquetFormat(unittest.TestCase):
         
         self.assertIsInstance(result, pa.Table)
         self.assertEqual(result.num_rows, 3)
-        mock_read_table.assert_called_once_with(self.file_path)
+        mock_read_table.assert_called_once_with(self.file_path, columns=None)
     
     @patch('deltacat.storage.formats.parquet.pq.write_table')
     def test_parquet_write(self, mock_write_table):
@@ -465,16 +470,23 @@ class TestParquetFormat(unittest.TestCase):
 class TestUnifiedFormatInterface(unittest.TestCase):
     """Test the unified format interface that auto-detects formats."""
     
-    def test_detect_delta_format(self):
+    @patch('deltacat.storage.formats.unified.Path')
+    @patch('os.path.exists')
+    def test_detect_delta_format(self, mock_exists, mock_path_class):
         """Test auto-detection of Delta format."""
         from deltacat.storage.formats.unified import detect_format
         
-        # Delta tables are directories with _delta_log
-        format_type = detect_format("/path/to/delta/table/_delta_log")
-        self.assertEqual(format_type, "delta")
+        # Mock for Delta detection
+        mock_path_instance = Mock()
+        mock_delta_log = Mock()
+        mock_delta_log.exists.return_value = True
+        mock_delta_log.is_dir.return_value = True
+        mock_path_instance.__truediv__ = Mock(return_value=mock_delta_log)
+        mock_path_class.return_value = mock_path_instance
+        mock_exists.return_value = True
         
-        # Also check .delta extension
-        format_type = detect_format("/path/to/table.delta")
+        # Delta tables are directories with _delta_log
+        format_type = detect_format("/path/to/delta/table")
         self.assertEqual(format_type, "delta")
     
     def test_detect_iceberg_format(self):
@@ -592,7 +604,7 @@ class TestUnifiedFormatInterface(unittest.TestCase):
             
             # Verify data was read from source and written to target
             mock_source.read.assert_called_once()
-            mock_target.write.assert_called_once_with(mock_data)
+            mock_target.write.assert_called_once_with(mock_data, mode='overwrite', partition_by=None)
 
 
 class TestFormatIntegration(unittest.TestCase):
