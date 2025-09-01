@@ -11,19 +11,21 @@ import ray
 
 from deltacat import logs
 from deltacat.catalog.model.table_definition import TableDefinition
-from deltacat.storage.model.namespace import Namespace, NamespaceProperties
+from deltacat.storage.model.namespace import Namespace, NamespaceProperties, NamespaceLocator
 from deltacat.storage.model.schema import Schema, Field
-from deltacat.storage.model.table import Table, TableProperties
+from deltacat.storage.model.table import Table, TableProperties, TableLocator
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.partition import PartitionScheme
 from deltacat.storage.model.sort_key import SortScheme
-from deltacat.storage.model.table_version import TableVersion
+from deltacat.storage.model.table_version import TableVersion, TableVersionLocator
+from deltacat.storage.model.stream import Stream, StreamLocator
 from deltacat.storage.model.types import (
     DistributedDataset,
     LifecycleState,
     LocalDataset,
     LocalTable,
     StreamFormat,
+    CommitState,
 )
 from deltacat.types.media import ContentType
 from deltacat.types.tables import TableWriteMode
@@ -31,6 +33,18 @@ from deltacat.types.tables import TableWriteMode
 from deltacat.catalog.unity.unity_catalog_config import UnityCatalogConfig
 from deltacat.catalog.unity.client import UnityClient
 from deltacat.catalog.unity import format_handler
+
+# Optional imports for table format readers/writers
+try:
+    from deltalake import DeltaTable, write_deltalake
+except ImportError:
+    DeltaTable = None
+    write_deltalake = None
+
+try:
+    from pyiceberg.table import load_table
+except ImportError:
+    load_table = None
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -108,8 +122,10 @@ def create_namespace(
     )
     
     # Convert to DeltaCAT Namespace
+    # Namespace.of requires a locator, not a name
+    namespace_locator = NamespaceLocator.of(namespace)
     return Namespace.of(
-        name=namespace,
+        locator=namespace_locator,
         properties=properties or {},
     )
 
@@ -141,8 +157,9 @@ def list_namespaces(
     # Convert to DeltaCAT Namespaces
     namespaces = []
     for schema in schemas:
+        namespace_locator = NamespaceLocator.of(schema.name)
         namespace = Namespace.of(
-            name=schema.name,
+            locator=namespace_locator,
             properties={"catalog": schema.catalog_name},
         )
         namespaces.append(namespace)
@@ -222,21 +239,43 @@ def create_table(
     )
     
     # Create DeltaCAT TableDefinition
+    # Table.of requires a locator with namespace and table name
+    namespace_locator = NamespaceLocator.of(namespace)
+    table_locator = TableLocator.of(namespace_locator, table)
     table_obj = Table.of(
-        name=table,
-        locator=table_info.storage_location,
+        locator=table_locator,
+        description=description,
+        properties=properties,
+    )
+    
+    # Create table version locator
+    table_version_locator = TableVersionLocator.of(
+        table_locator=table_locator,
+        table_version="1",  # Version string
     )
     
     table_version = TableVersion.of(
-        version=1,
+        locator=table_version_locator,
         schema=schema,
         lifecycle_state=LifecycleState.ACTIVE,
+    )
+    
+    # Create stream
+    stream_locator = StreamLocator.of(
+        table_version_locator=table_version_locator,
+        stream_id="1",
+        stream_format=StreamFormat.DELTACAT,
+    )
+    stream = Stream.of(
+        locator=stream_locator,
+        partition_scheme=None,
+        state=CommitState.COMMITTED,
     )
     
     return TableDefinition.of(
         table=table_obj,
         table_version=table_version,
-        namespace=namespace,
+        stream=stream,
     )
 
 
@@ -281,22 +320,41 @@ def get_table(
     schema = Schema.of(fields)
     
     # Create TableDefinition
+    namespace_locator = NamespaceLocator.of(namespace)
+    table_locator = TableLocator.of(namespace_locator, table)
     table_obj = Table.of(
-        name=table,
-        locator=table_info.storage_location,
+        locator=table_locator,
+        description=table_info.comment if hasattr(table_info, 'comment') else None,
+    )
+    
+    # Create table version locator
+    table_version_locator = TableVersionLocator.of(
+        table_locator=table_locator,
+        table_version="1",
     )
     
     table_version = TableVersion.of(
-        version=1,
+        locator=table_version_locator,
         schema=schema,
         lifecycle_state=LifecycleState.ACTIVE,
+    )
+    
+    # Create stream
+    stream_locator = StreamLocator.of(
+        table_version_locator=table_version_locator,
+        stream_id="1",
+        stream_format=StreamFormat.DELTACAT,
+    )
+    stream = Stream.of(
+        locator=stream_locator,
+        partition_scheme=None,
+        state=CommitState.COMMITTED,
     )
     
     return TableDefinition.of(
         table=table_obj,
         table_version=table_version,
-        namespace=namespace,
-        properties=table_info.properties or {},
+        stream=stream,
     )
 
 
@@ -332,22 +390,47 @@ def list_tables(
     # Convert to TableDefinitions
     table_defs = []
     for table_info in tables_info:
+        namespace_locator = NamespaceLocator.of(namespace)
+        table_locator = TableLocator.of(namespace_locator, table_info.name)
         table_obj = Table.of(
-            name=table_info.name,
-            locator=table_info.storage_location,
+            locator=table_locator,
+            description=table_info.comment if hasattr(table_info, 'comment') else None,
+        )
+        
+        # Create table version locator
+        table_version_locator = TableVersionLocator.of(
+            table_locator=table_locator,
+            table_version="1",
         )
         
         # Basic schema - would need to fetch full details for complete schema
+        # Create a minimal schema with one field to satisfy Schema requirements
+        minimal_field = Field.of(
+            field=pa.field("_placeholder", pa.null()),
+            field_id=1,
+        )
         table_version = TableVersion.of(
-            version=1,
-            schema=Schema.of([]),  # Empty schema for listing
+            locator=table_version_locator,
+            schema=Schema.of([minimal_field]),  # Minimal schema for listing
             lifecycle_state=LifecycleState.ACTIVE,
+        )
+        
+        # Create stream
+        stream_locator = StreamLocator.of(
+            table_version_locator=table_version_locator,
+            stream_id="1",
+            stream_format=StreamFormat.DELTACAT,
+        )
+        stream = Stream.of(
+            locator=stream_locator,
+            partition_scheme=None,
+            state=CommitState.COMMITTED,
         )
         
         table_def = TableDefinition.of(
             table=table_obj,
             table_version=table_version,
-            namespace=namespace,
+            stream=stream,
         )
         table_defs.append(table_def)
     
@@ -389,22 +472,18 @@ def read_table(
     
     # Get appropriate reader
     if table_format == "DELTA":
-        try:
-            from deltalake import DeltaTable
-            dt = DeltaTable(storage_location)
-            arrow_table = dt.to_pyarrow_table()
-        except ImportError:
+        if DeltaTable is None:
             logger.error("Delta Lake reader not available")
-            raise
+            raise ImportError("deltalake package not installed")
+        dt = DeltaTable(storage_location)
+        arrow_table = dt.to_pyarrow_table()
     
     elif table_format == "ICEBERG":
-        try:
-            from pyiceberg.table import load_table
-            iceberg_table = load_table(storage_location)
-            arrow_table = iceberg_table.scan().to_arrow()
-        except ImportError:
+        if load_table is None:
             logger.error("Iceberg reader not available")
-            raise
+            raise ImportError("pyiceberg package not installed")
+        iceberg_table = load_table(storage_location)
+        arrow_table = iceberg_table.scan().to_arrow()
     
     else:
         raise NotImplementedError(f"Format {table_format} not yet supported")
@@ -467,8 +546,8 @@ def write_to_table(
             # Map write mode
             mode_map = {
                 TableWriteMode.APPEND: "append",
-                TableWriteMode.OVERWRITE: "overwrite",
-                TableWriteMode.ERROR_IF_EXISTS: "error",
+                TableWriteMode.REPLACE: "overwrite",
+                TableWriteMode.CREATE: "error",
             }
             delta_mode = mode_map.get(mode, "append")
             
@@ -589,7 +668,8 @@ def get_namespace(
     **kwargs,
 ) -> Namespace:
     """Get namespace metadata."""
-    return Namespace.of(name=namespace)
+    namespace_locator = NamespaceLocator.of(namespace)
+    return Namespace.of(locator=namespace_locator)
 
 
 def namespace_exists(
@@ -663,14 +743,44 @@ def rename_table(
     table: str,
     new_table: str,
     namespace: Optional[str] = None,
+    new_namespace: Optional[str] = None,
     *args,
     inner: Optional[UnityClient] = None,
     config: Optional[UnityCatalogConfig] = None,
     **kwargs,
 ) -> None:
-    """Rename a table."""
-    # Unity Catalog doesn't support direct rename, would need to recreate
-    raise NotImplementedError("Table rename not yet supported")
+    """Rename a table in Unity Catalog.
+    
+    Args:
+        table: Current name of the table
+        new_table: New name for the table
+        namespace: Current namespace/schema name
+        new_namespace: Optional new namespace/schema name for moving table
+        inner: Unity client instance
+        config: Unity catalog configuration
+    """
+    if not inner:
+        raise ValueError("Unity client not initialized")
+    
+    if not config:
+        raise ValueError("Unity config required")
+    
+    full_name = f"{config.catalog_name}.{namespace}.{table}"
+    
+    # Build update parameters
+    update_args = {"full_name": full_name}
+    
+    if new_namespace and new_namespace != namespace:
+        # Moving table across namespaces
+        update_args["new_catalog_name"] = config.catalog_name
+        update_args["new_schema_name"] = new_namespace
+        update_args["new_name"] = new_table
+    else:
+        # Simple rename within same namespace
+        update_args["new_name"] = new_table
+    
+    # Execute rename via Unity Catalog API
+    inner.workspace.tables.update(**update_args)
 
 
 def truncate_table(
@@ -681,9 +791,34 @@ def truncate_table(
     config: Optional[UnityCatalogConfig] = None,
     **kwargs,
 ) -> None:
-    """Truncate a table."""
-    # Would need to use SQL or Delta operations
-    raise NotImplementedError("Table truncate not yet supported")
+    """Truncate a table in Unity Catalog.
+    
+    Removes all data from the table while preserving the table structure,
+    schema, and partitions.
+    
+    Args:
+        table: Name of the table to truncate
+        namespace: Namespace/schema name
+        inner: Unity client instance
+        config: Unity catalog configuration
+    """
+    if not inner:
+        raise ValueError("Unity client not initialized")
+    
+    if not config:
+        raise ValueError("Unity config required")
+    
+    full_name = f"{config.catalog_name}.{namespace}.{table}"
+    
+    # Execute TRUNCATE TABLE via SQL
+    statement = f"TRUNCATE TABLE {full_name}"
+    
+    # Use statement execution API to run SQL
+    inner.workspace.statement_execution.execute_statement(
+        warehouse_id=config.warehouse_id,
+        statement=statement,
+        wait_timeout="0s"  # Return immediately
+    )
 
 
 def refresh_table(
