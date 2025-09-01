@@ -7,8 +7,10 @@ DuckDB can query directly without data movement.
 
 from deltacat.sql.gateway import DeltaCATSQLGateway
 from deltacat.sql.catalog_adapter import CatalogAdapter
+from deltacat.sql.iceberg_adapter import IcebergSQLAdapter
 
 __all__ = [
     "DeltaCATSQLGateway",
     "CatalogAdapter",
+    "IcebergSQLAdapter",
 ]

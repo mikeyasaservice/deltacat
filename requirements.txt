@@ -10,6 +10,7 @@ boto3 ~= 1.34
 
 # General
 daft == 0.4.15
+duckdb >= 1.1.0
 gcsfs == 2025.3.2
 
 # GCP
@@ -18,7 +19,7 @@ google-cloud-storage
 intervaltree == 3.1.0
 msgpack ~= 1.0.7
 
-numpy == 1.22.4
+numpy >= 1.26.0
 pandas == 2.2.3
 polars == 1.28.1
 

@@ -17,6 +17,7 @@ from deltacat.catalog import (
     raise_if_not_initialized,
 )
 from deltacat.sql.catalog_adapter import CatalogAdapter
+from deltacat.sql.iceberg_adapter import IcebergSQLAdapter
 from deltacat.storage import Schema
 from deltacat.types.media import ContentType
 
@@ -31,6 +32,7 @@ class DeltaCATSQLGateway:
         catalog_name: Optional[str] = None,
         connection_config: Optional[Dict[str, Any]] = None,
         auto_register_tables: bool = True,
+        enable_iceberg_optimization: bool = True,
     ):
         """Initialize the SQL gateway.
         
@@ -38,6 +40,7 @@ class DeltaCATSQLGateway:
             catalog_name: Name of the DeltaCAT catalog to use
             connection_config: Optional DuckDB connection configuration
             auto_register_tables: Whether to automatically register all catalog tables
+            enable_iceberg_optimization: Whether to use native Iceberg support for Iceberg tables
         """
         raise_if_not_initialized()
         
@@ -48,6 +51,15 @@ class DeltaCATSQLGateway:
         config = connection_config or {}
         self.connection = duckdb.connect(":memory:", config=config)
         
+        # Initialize Iceberg adapter if optimization is enabled
+        self.iceberg_adapter = None
+        if enable_iceberg_optimization:
+            try:
+                self.iceberg_adapter = IcebergSQLAdapter(catalog_name, self.connection)
+                logger.info("Iceberg optimization enabled")
+            except Exception as e:
+                logger.warning(f"Could not enable Iceberg optimization: {e}")
+        
         # Register all tables if requested
         if auto_register_tables:
             self._register_all_tables()
@@ -56,15 +68,28 @@ class DeltaCATSQLGateway:
     
     def _register_all_tables(self):
         """Register all DeltaCAT tables with DuckDB."""
-        tables = self.catalog_adapter.list_all_tables()
         registered_count = 0
+        
+        # First try to register Iceberg tables with native support
+        if self.iceberg_adapter:
+            iceberg_count = self.iceberg_adapter.register_all_iceberg_tables()
+            registered_count += iceberg_count
+            logger.info(f"Registered {iceberg_count} Iceberg tables with native support")
+        
+        # Then register remaining tables via Arrow Datasets
+        tables = self.catalog_adapter.list_all_tables()
         
         for namespace, table_name in tables:
             full_name = f"{namespace}.{table_name}" if namespace else table_name
+            # Skip if already registered as Iceberg (need to check actual table)
+            # TODO: Implement proper deduplication check
+            if self.iceberg_adapter:
+                # For now, try to register all non-Iceberg tables
+                pass
             if self.register_table(table_name, namespace, alias=full_name):
                 registered_count += 1
                 
-        logger.info(f"Registered {registered_count} tables with DuckDB")
+        logger.info(f"Registered {registered_count} total tables with DuckDB")
     
     def register_table(
         self,
