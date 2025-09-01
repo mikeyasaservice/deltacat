@@ -183,8 +183,8 @@ class TestUnityCatalogImpl(unittest.TestCase):
         self.assertIsInstance(result, ListResult)
         namespaces = list(result.all_items())
         self.assertEqual(len(namespaces), 2)
-        self.assertEqual(namespaces[0].name, "bronze")
-        self.assertEqual(namespaces[1].name, "silver")
+        self.assertEqual(namespaces[0].namespace, "bronze")
+        self.assertEqual(namespaces[1].namespace, "silver")
     
     @patch('deltacat.catalog.unity.impl.UnityClient')
     def test_create_delta_table(self, mock_client_class):
@@ -405,7 +405,7 @@ class TestUnityCatalogImpl(unittest.TestCase):
         })
         
         # Mock Delta table write
-        with patch('deltacat.catalog.unity.impl.write_deltalake') as mock_write:
+        with patch('deltalake.write_deltalake') as mock_write:
             write_to_table(
                 data=test_data,
                 table="test_table",
@@ -460,8 +460,8 @@ class TestUnityCatalogImpl(unittest.TestCase):
         self.assertIsInstance(result, ListResult)
         tables = list(result.all_items())
         self.assertEqual(len(tables), 2)
-        self.assertEqual(tables[0].table.name, "customers")
-        self.assertEqual(tables[1].table.name, "orders")
+        self.assertEqual(tables[0].table.table_name, "customers")
+        self.assertEqual(tables[1].table.table_name, "orders")
     
     @patch('deltacat.catalog.unity.impl.UnityClient')
     def test_alter_table_schema(self, mock_client_class):
@@ -504,6 +504,225 @@ class TestUnityCatalogImpl(unittest.TestCase):
         )
         
         mock_client.workspace.tables.update.assert_called_once()
+    
+    @patch('deltacat.catalog.unity.impl.UnityClient')
+    def test_rename_table(self, mock_client_class):
+        """Test renaming a table in Unity Catalog."""
+        from deltacat.catalog.unity.impl import rename_table
+        from deltacat.catalog.unity.unity_catalog_config import UnityCatalogConfig
+        
+        mock_client = Mock()
+        mock_client_class.return_value = mock_client
+        
+        config = UnityCatalogConfig(
+            workspace_url="https://workspace.databricks.com",
+            token="dapi123456789",
+            catalog_name="main"
+        )
+        inner = mock_client
+        
+        # Mock table metadata retrieval
+        mock_table = Mock()
+        mock_table.name = "old_table"
+        mock_table.catalog_name = "main"
+        mock_table.schema_name = "test_schema"
+        mock_table.full_name = "main.test_schema.old_table"
+        mock_client.workspace.tables.get.return_value = mock_table
+        
+        # Mock successful rename operation
+        mock_client.workspace.tables.update.return_value = Mock()
+        
+        # Test renaming within same namespace
+        rename_table(
+            table="old_table",
+            new_table="new_table",
+            namespace="test_schema",
+            inner=inner,
+            config=config
+        )
+        
+        # Verify the update was called with correct parameters
+        mock_client.workspace.tables.update.assert_called_once_with(
+            full_name="main.test_schema.old_table",
+            new_name="new_table"
+        )
+    
+    @patch('deltacat.catalog.unity.impl.UnityClient')
+    def test_rename_table_across_namespaces(self, mock_client_class):
+        """Test renaming a table across different namespaces."""
+        from deltacat.catalog.unity.impl import rename_table
+        from deltacat.catalog.unity.unity_catalog_config import UnityCatalogConfig
+        
+        mock_client = Mock()
+        mock_client_class.return_value = mock_client
+        
+        config = UnityCatalogConfig(
+            workspace_url="https://workspace.databricks.com",
+            token="dapi123456789",
+            catalog_name="main"
+        )
+        inner = mock_client
+        
+        # Mock table metadata
+        mock_table = Mock()
+        mock_table.name = "old_table"
+        mock_table.catalog_name = "main"
+        mock_table.schema_name = "old_schema"
+        mock_table.full_name = "main.old_schema.old_table"
+        mock_client.workspace.tables.get.return_value = mock_table
+        
+        # Test renaming across namespaces
+        rename_table(
+            table="old_table",
+            new_table="new_table",
+            namespace="old_schema",
+            new_namespace="new_schema",
+            inner=inner,
+            config=config
+        )
+        
+        # Verify update with new catalog.schema.table path
+        mock_client.workspace.tables.update.assert_called_once_with(
+            full_name="main.old_schema.old_table",
+            new_catalog_name="main",
+            new_schema_name="new_schema",
+            new_name="new_table"
+        )
+    
+    @patch('deltacat.catalog.unity.impl.UnityClient')
+    def test_truncate_table(self, mock_client_class):
+        """Test truncating a table in Unity Catalog."""
+        from deltacat.catalog.unity.impl import truncate_table
+        from deltacat.catalog.unity.unity_catalog_config import UnityCatalogConfig
+        
+        mock_client = Mock()
+        mock_client_class.return_value = mock_client
+        
+        config = UnityCatalogConfig(
+            workspace_url="https://workspace.databricks.com",
+            token="dapi123456789",
+            catalog_name="main"
+        )
+        inner = mock_client
+        
+        # Mock table metadata
+        mock_table = Mock()
+        mock_table.name = "test_table"
+        mock_table.catalog_name = "main"
+        mock_table.schema_name = "test_schema"
+        mock_table.full_name = "main.test_schema.test_table"
+        mock_table.data_source_format = "DELTA"
+        mock_table.storage_location = "s3://bucket/path/to/table"
+        mock_client.workspace.tables.get.return_value = mock_table
+        
+        # Mock SQL execution for TRUNCATE
+        mock_client.workspace.statement_execution.execute_statement.return_value = Mock(
+            status="SUCCEEDED"
+        )
+        
+        # Test truncating Delta table
+        truncate_table(
+            table="test_table",
+            namespace="test_schema",
+            inner=inner,
+            config=config
+        )
+        
+        # Verify TRUNCATE TABLE was executed
+        mock_client.workspace.statement_execution.execute_statement.assert_called_once()
+        call_args = mock_client.workspace.statement_execution.execute_statement.call_args
+        self.assertIn("TRUNCATE TABLE", call_args[1]["statement"])
+        self.assertIn("main.test_schema.test_table", call_args[1]["statement"])
+    
+    @patch('deltacat.catalog.unity.impl.UnityClient')
+    def test_truncate_table_with_partitions(self, mock_client_class):
+        """Test truncating a partitioned table preserves partition structure."""
+        from deltacat.catalog.unity.impl import truncate_table
+        from deltacat.catalog.unity.unity_catalog_config import UnityCatalogConfig
+        
+        mock_client = Mock()
+        mock_client_class.return_value = mock_client
+        
+        config = UnityCatalogConfig(
+            workspace_url="https://workspace.databricks.com",
+            token="dapi123456789",
+            catalog_name="main"
+        )
+        inner = mock_client
+        
+        # Mock partitioned table metadata
+        mock_table = Mock()
+        mock_table.name = "partitioned_table"
+        mock_table.catalog_name = "main"
+        mock_table.schema_name = "test_schema"
+        mock_table.full_name = "main.test_schema.partitioned_table"
+        mock_table.data_source_format = "DELTA"
+        mock_table.storage_location = "s3://bucket/path/to/partitioned_table"
+        mock_table.partition_columns = ["year", "month"]
+        mock_client.workspace.tables.get.return_value = mock_table
+        
+        # Mock SQL execution
+        mock_client.workspace.statement_execution.execute_statement.return_value = Mock(
+            status="SUCCEEDED"
+        )
+        
+        # Test truncating partitioned table
+        truncate_table(
+            table="partitioned_table",
+            namespace="test_schema",
+            inner=inner,
+            config=config
+        )
+        
+        # Verify TRUNCATE was executed (partitions preserved automatically)
+        mock_client.workspace.statement_execution.execute_statement.assert_called_once()
+        call_args = mock_client.workspace.statement_execution.execute_statement.call_args
+        self.assertIn("TRUNCATE TABLE", call_args[1]["statement"])
+    
+    @patch('deltacat.catalog.unity.impl.UnityClient')
+    def test_truncate_iceberg_table(self, mock_client_class):
+        """Test truncating an Iceberg table via UniForm."""
+        from deltacat.catalog.unity.impl import truncate_table
+        from deltacat.catalog.unity.unity_catalog_config import UnityCatalogConfig
+        
+        mock_client = Mock()
+        mock_client_class.return_value = mock_client
+        
+        config = UnityCatalogConfig(
+            workspace_url="https://workspace.databricks.com",
+            token="dapi123456789",
+            catalog_name="main"
+        )
+        inner = mock_client
+        
+        # Mock Iceberg table metadata (with UniForm)
+        mock_table = Mock()
+        mock_table.name = "iceberg_table"
+        mock_table.catalog_name = "main"
+        mock_table.schema_name = "test_schema"
+        mock_table.full_name = "main.test_schema.iceberg_table"
+        mock_table.data_source_format = "DELTA"  # Actually Delta with UniForm
+        mock_table.storage_location = "s3://bucket/path/to/iceberg_table"
+        mock_table.properties = {
+            "delta.universalFormat.enabledFormats": "iceberg"
+        }
+        mock_client.workspace.tables.get.return_value = mock_table
+        
+        # Mock SQL execution
+        mock_client.workspace.statement_execution.execute_statement.return_value = Mock(
+            status="SUCCEEDED"
+        )
+        
+        # Test truncating Iceberg-compatible table
+        truncate_table(
+            table="iceberg_table",
+            namespace="test_schema",
+            inner=inner,
+            config=config
+        )
+        
+        # Verify TRUNCATE was executed
+        mock_client.workspace.statement_execution.execute_statement.assert_called_once()
 
 
 class TestFormatHandler(unittest.TestCase):
@@ -611,7 +830,7 @@ class TestUnityCatalogIntegration(unittest.TestCase):
             'value': [10.5, 20.5, 30.5]
         })
         
-        with patch('deltacat.catalog.unity.impl.write_deltalake'):
+        with patch('deltalake.write_deltalake'):
             unity_impl.write_to_table(
                 data=test_data,
                 table="test_table",
