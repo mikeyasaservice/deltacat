@@ -5,7 +5,13 @@ from typing import List, Dict, Any
 from datetime import date, datetime
 import pyarrow as pa
 
-from deltacat.storage import Partition, PartitionValues
+from deltacat.storage import Partition, Schema, Field
+from deltacat.storage.model.partition import (
+    PartitionLocator,
+    PartitionScheme,
+    PartitionKey,
+)
+from deltacat.types.media import ContentType
 from deltacat.storage.model.partition_pruner import (
     PartitionPruner,
     PartitionFilter,
@@ -13,7 +19,6 @@ from deltacat.storage.model.partition_pruner import (
     PartitionStatistics,
     PruningResult,
 )
-from deltacat.storage.model.partition import PartitionLocator, PartitionScheme
 
 
 class TestPartitionPruner:
@@ -24,15 +29,18 @@ class TestPartitionPruner:
         """Create sample partitions for testing."""
         partitions = []
         
+        # Create a simple schema for testing
+        schema = Schema.of([
+            Field.of(field=pa.field("id", pa.int64()), field_id=1),
+            Field.of(field=pa.field("value", pa.string()), field_id=2),
+        ])
+        
         # Create partitions with different date and region values
         for year in [2023, 2024]:
             for month in [1, 2, 3]:
                 for region in ["us-east", "us-west", "eu-west"]:
-                    partition_values = PartitionValues.of({
-                        "year": year,
-                        "month": month,
-                        "region": region,
-                    })
+                    # PartitionValues is just List[Any]
+                    partition_values = [year, month, region]
                     
                     locator = PartitionLocator.of(
                         stream_locator=None,  # Not needed for pruning tests
@@ -40,7 +48,13 @@ class TestPartitionPruner:
                         partition_id=f"{year}-{month}-{region}",
                     )
                     
-                    partition = Partition.of(locator=locator)
+                    partition = Partition.of(
+                        locator=locator,
+                        schema=schema,
+                        content_types=[ContentType.PARQUET],
+                    )
+                    # Store values as dict for easier access in pruning
+                    partition._column_map = {"year": year, "month": month, "region": region}
                     partitions.append(partition)
         
         return partitions
@@ -48,14 +62,15 @@ class TestPartitionPruner:
     @pytest.fixture
     def partition_scheme(self) -> PartitionScheme:
         """Create a partition scheme for testing."""
-        return PartitionScheme.of(
-            partition_columns=["year", "month", "region"],
-            partition_types={
-                "year": pa.int32(),
-                "month": pa.int32(),
-                "region": pa.string(),
-            },
-        )
+        keys = [
+            PartitionKey.of(key=["year"], name="year"),
+            PartitionKey.of(key=["month"], name="month"),
+            PartitionKey.of(key=["region"], name="region"),
+        ]
+        scheme = PartitionScheme.of(keys=keys)
+        # Add partition_columns for our pruner
+        scheme.partition_columns = ["year", "month", "region"]
+        return scheme
 
     def test_prune_partitions_single_filter(self, sample_partitions, partition_scheme):
         """Test pruning with a single filter condition."""
@@ -77,7 +92,7 @@ class TestPartitionPruner:
         # Should only return 2024 partitions (9 total: 3 months * 3 regions)
         assert len(result.selected_partitions) == 9
         for partition in result.selected_partitions:
-            assert partition.locator.partition_values["year"] == 2024
+            assert partition._column_map["year"] == 2024
         
         # Check pruning statistics
         assert result.total_partitions == 18
@@ -109,8 +124,8 @@ class TestPartitionPruner:
         # Should only return 2024-02 partitions (3 regions)
         assert len(result.selected_partitions) == 3
         for partition in result.selected_partitions:
-            assert partition.locator.partition_values["year"] == 2024
-            assert partition.locator.partition_values["month"] == 2
+            assert partition._column_map["year"] == 2024
+            assert partition._column_map["month"] == 2
 
     def test_prune_partitions_range_filter(self, sample_partitions, partition_scheme):
         """Test pruning with range filter conditions."""
@@ -132,7 +147,7 @@ class TestPartitionPruner:
         # Should return partitions with month 2 and 3 (12 total: 2 years * 2 months * 3 regions)
         assert len(result.selected_partitions) == 12
         for partition in result.selected_partitions:
-            assert partition.locator.partition_values["month"] >= 2
+            assert partition._column_map["month"] >= 2
 
     def test_prune_partitions_in_filter(self, sample_partitions, partition_scheme):
         """Test pruning with IN filter for multiple values."""
@@ -154,7 +169,7 @@ class TestPartitionPruner:
         # Should return only us-east and us-west partitions (12 total: 2 years * 3 months * 2 regions)
         assert len(result.selected_partitions) == 12
         for partition in result.selected_partitions:
-            assert partition.locator.partition_values["region"] in ["us-east", "us-west"]
+            assert partition._column_map["region"] in ["us-east", "us-west"]
 
     def test_prune_partitions_not_equals_filter(self, sample_partitions, partition_scheme):
         """Test pruning with NOT EQUALS filter."""
@@ -176,7 +191,7 @@ class TestPartitionPruner:
         # Should exclude eu-west partitions (12 total: 2 years * 3 months * 2 regions)
         assert len(result.selected_partitions) == 12
         for partition in result.selected_partitions:
-            assert partition.locator.partition_values["region"] != "eu-west"
+            assert partition._column_map["region"] != "eu-west"
 
     def test_prune_partitions_between_filter(self, sample_partitions, partition_scheme):
         """Test pruning with BETWEEN filter for range."""
@@ -198,7 +213,7 @@ class TestPartitionPruner:
         # Should return partitions with month 1 or 2 (12 total: 2 years * 2 months * 3 regions)
         assert len(result.selected_partitions) == 12
         for partition in result.selected_partitions:
-            month = partition.locator.partition_values["month"]
+            month = partition._column_map["month"]
             assert 1 <= month <= 2
 
     def test_prune_partitions_no_filter(self, sample_partitions, partition_scheme):
@@ -244,9 +259,13 @@ class TestPartitionPruner:
             "non_partition_col": "ignored",
         }
         
-        partition_scheme = PartitionScheme.of(
-            partition_columns=["year", "month", "region"],
-        )
+        keys = [
+            PartitionKey.of(key=["year"], name="year"),
+            PartitionKey.of(key=["month"], name="month"),
+            PartitionKey.of(key=["region"], name="region"),
+        ]
+        partition_scheme = PartitionScheme.of(keys=keys)
+        partition_scheme.partition_columns = ["year", "month", "region"]
         
         filters = PartitionPruner.analyze_predicates(predicates, partition_scheme)
         
@@ -270,6 +289,11 @@ class TestPartitionPruner:
 
     def test_get_partition_statistics(self, sample_partitions):
         """Test getting statistics about partitions."""
+        # Update partitions to use column map for statistics
+        for partition in sample_partitions:
+            # Convert _column_map to partition_values dict-like access
+            partition.locator.partition_values = partition._column_map
+            
         stats = PartitionPruner.get_partition_statistics(sample_partitions)
         
         # Check basic counts
@@ -288,10 +312,7 @@ class TestPartitionPruner:
 
     def test_complex_pruning_scenario(self, sample_partitions, partition_scheme):
         """Test complex pruning with multiple conditions."""
-        # Complex filter: (year = 2024 AND month IN (1, 3)) OR (year = 2023 AND region = 'eu-west')
-        # Note: This tests the AND logic within filter sets
-        
-        # First condition set: year = 2024 AND month IN (1, 3)
+        # Complex filter: year = 2024 AND month IN (1, 3)
         filters = [
             PartitionFilter(
                 column="year",
@@ -315,11 +336,15 @@ class TestPartitionPruner:
         assert len(result.selected_partitions) == 6
         
         for partition in result.selected_partitions:
-            assert partition.locator.partition_values["year"] == 2024
-            assert partition.locator.partition_values["month"] in [1, 3]
+            assert partition._column_map["year"] == 2024
+            assert partition._column_map["month"] in [1, 3]
 
-    def test_empty_partitions_list(self, partition_scheme):
+    def test_empty_partitions_list(self):
         """Test pruning with empty partitions list."""
+        keys = [PartitionKey.of(key=["year"], name="year")]
+        partition_scheme = PartitionScheme.of(keys=keys)
+        partition_scheme.partition_columns = ["year"]
+        
         result = PartitionPruner.prune_partitions(
             partitions=[],
             filters=[
@@ -337,33 +362,50 @@ class TestPartitionPruner:
         assert result.pruned_partitions == 0
         assert result.pruning_percentage == 0.0
 
-    def test_null_value_handling(self, partition_scheme):
+    def test_null_value_handling(self):
         """Test handling of null values in partition columns."""
         # Create partitions with some null values
-        partitions = [
-            Partition.of(
-                locator=PartitionLocator.of(
-                    stream_locator=None,
-                    partition_values=PartitionValues.of({
-                        "year": 2024,
-                        "month": None,  # Null value
-                        "region": "us-east",
-                    }),
-                    partition_id="2024-null-us-east",
-                )
-            ),
-            Partition.of(
-                locator=PartitionLocator.of(
-                    stream_locator=None,
-                    partition_values=PartitionValues.of({
-                        "year": 2024,
-                        "month": 1,
-                        "region": "us-east",
-                    }),
-                    partition_id="2024-1-us-east",
-                )
-            ),
+        partitions = []
+        
+        # Create a simple schema for testing
+        schema = Schema.of([
+            Field.of(field=pa.field("id", pa.int64()), field_id=1),
+            Field.of(field=pa.field("value", pa.string()), field_id=2),
+        ])
+        
+        locator1 = PartitionLocator.of(
+            stream_locator=None,
+            partition_values=[2024, None, "us-east"],
+            partition_id="2024-null-us-east",
+        )
+        partition1 = Partition.of(
+            locator=locator1,
+            schema=schema,
+            content_types=[ContentType.PARQUET],
+        )
+        partition1._column_map = {"year": 2024, "month": None, "region": "us-east"}
+        partitions.append(partition1)
+        
+        locator2 = PartitionLocator.of(
+            stream_locator=None,
+            partition_values=[2024, 1, "us-east"],
+            partition_id="2024-1-us-east",
+        )
+        partition2 = Partition.of(
+            locator=locator2,
+            schema=schema,
+            content_types=[ContentType.PARQUET],
+        )
+        partition2._column_map = {"year": 2024, "month": 1, "region": "us-east"}
+        partitions.append(partition2)
+        
+        keys = [
+            PartitionKey.of(key=["year"], name="year"),
+            PartitionKey.of(key=["month"], name="month"),
+            PartitionKey.of(key=["region"], name="region"),
         ]
+        partition_scheme = PartitionScheme.of(keys=keys)
+        partition_scheme.partition_columns = ["year", "month", "region"]
         
         # Filter for month = 1 should exclude null values
         filters = [
@@ -381,35 +423,52 @@ class TestPartitionPruner:
         )
         
         assert len(result.selected_partitions) == 1
-        assert result.selected_partitions[0].locator.partition_values["month"] == 1
+        assert result.selected_partitions[0]._column_map["month"] == 1
 
-    def test_is_null_filter(self, partition_scheme):
+    def test_is_null_filter(self):
         """Test IS_NULL filter operator."""
         # Create partitions with some null values
-        partitions = [
-            Partition.of(
-                locator=PartitionLocator.of(
-                    stream_locator=None,
-                    partition_values=PartitionValues.of({
-                        "year": 2024,
-                        "month": None,
-                        "region": "us-east",
-                    }),
-                    partition_id="null-partition",
-                )
-            ),
-            Partition.of(
-                locator=PartitionLocator.of(
-                    stream_locator=None,
-                    partition_values=PartitionValues.of({
-                        "year": 2024,
-                        "month": 1,
-                        "region": "us-east",
-                    }),
-                    partition_id="non-null-partition",
-                )
-            ),
+        partitions = []
+        
+        # Create a simple schema for testing
+        schema = Schema.of([
+            Field.of(field=pa.field("id", pa.int64()), field_id=1),
+            Field.of(field=pa.field("value", pa.string()), field_id=2),
+        ])
+        
+        locator1 = PartitionLocator.of(
+            stream_locator=None,
+            partition_values=[2024, None, "us-east"],
+            partition_id="null-partition",
+        )
+        partition1 = Partition.of(
+            locator=locator1,
+            schema=schema,
+            content_types=[ContentType.PARQUET],
+        )
+        partition1._column_map = {"year": 2024, "month": None, "region": "us-east"}
+        partitions.append(partition1)
+        
+        locator2 = PartitionLocator.of(
+            stream_locator=None,
+            partition_values=[2024, 1, "us-east"],
+            partition_id="non-null-partition",
+        )
+        partition2 = Partition.of(
+            locator=locator2,
+            schema=schema,
+            content_types=[ContentType.PARQUET],
+        )
+        partition2._column_map = {"year": 2024, "month": 1, "region": "us-east"}
+        partitions.append(partition2)
+        
+        keys = [
+            PartitionKey.of(key=["year"], name="year"),
+            PartitionKey.of(key=["month"], name="month"),
+            PartitionKey.of(key=["region"], name="region"),
         ]
+        partition_scheme = PartitionScheme.of(keys=keys)
+        partition_scheme.partition_columns = ["year", "month", "region"]
         
         # Filter for month IS NULL
         filters = [
@@ -427,4 +486,4 @@ class TestPartitionPruner:
         )
         
         assert len(result.selected_partitions) == 1
-        assert result.selected_partitions[0].locator.partition_values["month"] is None
+        assert result.selected_partitions[0]._column_map["month"] is None
