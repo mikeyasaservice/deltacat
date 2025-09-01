@@ -595,9 +595,12 @@ class TestFormatIntegration(unittest.TestCase):
         mock_table_def.namespace = "test_namespace"
         mock_get_table.return_value = mock_table_def
         
-        # Get format from catalog
+        # Get format from catalog  
+        mock_catalog = Mock()
+        mock_catalog.get_table = mock_get_table
         table_format = get_table_format_from_catalog(
-            table="my_table",
+            catalog=mock_catalog,
+            table_name="my_table",
             namespace="test_namespace"
         )
         
