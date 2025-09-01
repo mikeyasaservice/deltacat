@@ -26,9 +26,8 @@ polars == 1.28.1
 # TestCompactionSession::test_compact_partition_when_incremental_then_rcf_stats_accurate to fail
 # due to input_inflation exceeding 1e-5
 
-# Daft requires pyarrow == 16.0.0.
-# TODO: upgrade version when Daft supports pyarrow > 16.0.0
-pyarrow == 16.0.0
+
+pyarrow == 19.0.1
 pydantic!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,!=2.4.*,<3
 
 # deltacat[iceberg]

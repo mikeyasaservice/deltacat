@@ -56,15 +56,13 @@ setuptools.setup(
         "gcsfs == 2025.3.2",
         # Misc
         "daft == 0.4.15",
+        "duckdb >= 1.1.0",
         "intervaltree == 3.1.0",
-        "numpy == 1.22.4",
+        "numpy >= 1.26.0",
         "pandas == 2.2.3",
         "polars == 1.28.1",
-        # upgrade to pyarrow 18.0.0 causes test
-        # TestCompactionSession::test_compact_partition_when_incremental_then_rcf_stats_accurate to fail
-        # due to input_inflation exceeding 1e-5
-        # Daft requires pyarrow == 16.00. TODO discuss upgrade with Daft
-        "pyarrow == 16.0.0",
+        # Updated to pyarrow 19.0.1 for compatibility with Daft
+        "pyarrow >= 19.0.1",
         "pydantic!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,!=2.4.*,<3",
         "pymemcache == 4.0.0",
         "ray[default] == 2.46.0",
