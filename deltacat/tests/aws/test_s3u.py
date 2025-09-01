@@ -21,7 +21,7 @@ from botocore.exceptions import (
 )
 from ray.data.datasource import FilenameProvider
 from deltacat.exceptions import NonRetryableError
-from moto import mock_s3
+from moto import mock_aws
 from tenacity import RetryError
 
 from deltacat.aws import s3u
@@ -53,7 +53,7 @@ class TestDownloadUpload(unittest.TestCase):
 
     @pytest.fixture(autouse=True)
     def setup_s3_resource(self):
-        with mock_s3():
+        with mock_aws():
             yield boto3.resource("s3")
 
     @pytest.fixture(autouse=True)
