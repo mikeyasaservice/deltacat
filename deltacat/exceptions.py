@@ -251,6 +251,31 @@ class NamespaceAlreadyExistsError(NonRetryableError):
     error_name = DeltaCatErrorNames.TABLE_ALREADY_EXISTS_ERROR.value
 
 
+class DeltaCATException(DeltaCatError):
+    """Base exception for all DeltaCAT operations."""
+    pass
+
+
+class CatalogOperationException(DeltaCATException):
+    """Exception raised during catalog operations."""
+    pass
+
+
+class TableNotFoundException(NonRetryableError):
+    """Exception raised when a table is not found."""
+    pass
+
+
+class InvalidOperationException(NonRetryableError):
+    """Exception raised for invalid operations."""
+    pass
+
+
+class StorageException(RetryableError):
+    """Exception raised for storage-related errors."""
+    pass
+
+
 def categorize_errors(func: Callable):
     def wrapper(*args, **kwargs):
         try:

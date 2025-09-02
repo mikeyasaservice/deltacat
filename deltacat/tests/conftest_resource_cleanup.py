@@ -19,8 +19,8 @@ def cleanup_resources():
     # Clear Daft session if exists
     try:
         daft.context.get_context().runner.shutdown()
-    except:
-        pass
+    except AttributeError:
+        pass  # Runner might not exist
 
 @pytest.fixture(autouse=True, scope="session")
 def configure_test_resources():

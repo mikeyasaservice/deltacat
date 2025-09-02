@@ -44,42 +44,50 @@ class TestSpecificExceptionHandling:
     """Test that all bare except clauses are replaced with specific exceptions."""
     
     def test_catalog_daft_namespace_exists_handles_specific_exceptions(self):
-        """Test that namespace_exists in daft catalog handles specific exceptions."""
+        """Test that _has_namespace in daft catalog handles specific exceptions."""
         from deltacat.catalog.daft.daft_catalog import DaftCatalog
+        from unittest.mock import Mock
         
-        catalog = DaftCatalog(config={})
-        with patch('deltacat.catalog.daft.daft_catalog.dc_list_tables') as mock_list:
+        mock_dc_catalog = Mock()
+        catalog = DaftCatalog(catalog=mock_dc_catalog, name="test_catalog")
+        with patch('deltacat.catalog.list_tables') as mock_list:
             # Should handle CatalogOperationException
             mock_list.side_effect = CatalogOperationException("Catalog error")
-            assert catalog.namespace_exists("test_namespace") is False
+            assert catalog._has_namespace("test_namespace") is False
             
             # Should handle TableNotFoundException
             mock_list.side_effect = TableNotFoundException("Not found")
-            assert catalog.namespace_exists("test_namespace") is False
+            assert catalog._has_namespace("test_namespace") is False
+            
+            # Should handle NamespaceNotFoundError
+            mock_list.side_effect = NamespaceNotFoundError("Not found")
+            assert catalog._has_namespace("test_namespace") is False
             
             # Should re-raise unexpected exceptions
             mock_list.side_effect = ValueError("Unexpected error")
             with pytest.raises(ValueError):
-                catalog.namespace_exists("test_namespace")
+                catalog._has_namespace("test_namespace")
     
     def test_catalog_daft_table_exists_handles_specific_exceptions(self):
-        """Test that table_exists in daft catalog handles specific exceptions."""
+        """Test that _has_table in daft catalog handles specific exceptions."""
         from deltacat.catalog.daft.daft_catalog import DaftCatalog
+        from unittest.mock import Mock
         
-        catalog = DaftCatalog(config={})
+        mock_dc_catalog = Mock()
+        catalog = DaftCatalog(catalog=mock_dc_catalog, name="test_catalog")
         with patch.object(catalog, 'get_table') as mock_get:
             # Should handle TableNotFoundException
             mock_get.side_effect = TableNotFoundException("Not found")
-            assert catalog.table_exists("test_table") is False
+            assert catalog._has_table("test_table") is False
             
             # Should handle CatalogOperationException
             mock_get.side_effect = CatalogOperationException("Catalog error")
-            assert catalog.table_exists("test_table") is False
+            assert catalog._has_table("test_table") is False
             
             # Should re-raise unexpected exceptions
             mock_get.side_effect = ValueError("Unexpected error")
             with pytest.raises(ValueError):
-                catalog.table_exists("test_table")
+                catalog._has_table("test_table")
     
     def test_unity_catalog_namespace_exists_handles_specific_exceptions(self):
         """Test that Unity catalog namespace_exists handles specific exceptions."""

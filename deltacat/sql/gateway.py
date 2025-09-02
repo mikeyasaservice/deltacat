@@ -33,6 +33,7 @@ class DeltaCATSQLGateway:
         connection_config: Optional[Dict[str, Any]] = None,
         auto_register_tables: bool = True,
         enable_iceberg_optimization: bool = True,
+        use_connection_pool: bool = True,
     ):
         """Initialize the SQL gateway.
         
@@ -41,15 +42,30 @@ class DeltaCATSQLGateway:
             connection_config: Optional DuckDB connection configuration
             auto_register_tables: Whether to automatically register all catalog tables
             enable_iceberg_optimization: Whether to use native Iceberg support for Iceberg tables
+            use_connection_pool: Whether to use connection pooling
         """
         raise_if_not_initialized()
         
         self.catalog_name = catalog_name
         self.catalog_adapter = CatalogAdapter(catalog_name)
         
-        # Initialize DuckDB connection
+        # Initialize DuckDB connection with pooling if enabled
+        from deltacat.config.performance import get_performance_config
+        from deltacat.catalog.connection_pool import get_pool_manager
+        
+        perf_config = get_performance_config()
         config = connection_config or {}
-        self.connection = duckdb.connect(":memory:", config=config)
+        
+        if use_connection_pool and perf_config.connection_pool.enabled:
+            # Use connection pool
+            self._pool_manager = get_pool_manager()
+            self._duckdb_pool = self._pool_manager.get_duckdb_pool(**config)
+            self.connection = None  # Will get from pool when needed
+            self._use_pool = True
+        else:
+            # Direct connection
+            self.connection = duckdb.connect(":memory:", config=config)
+            self._use_pool = False
         
         # Initialize Iceberg adapter if optimization is enabled
         self.iceberg_adapter = None
@@ -127,6 +143,13 @@ class DeltaCATSQLGateway:
             logger.error(f"Failed to register table {sql_name}: {e}")
             return False
     
+    def _get_connection(self):
+        """Get a DuckDB connection from pool or direct connection."""
+        if self._use_pool:
+            return self._duckdb_pool.get_connection()
+        else:
+            return self.connection
+    
     def sql(
         self,
         query: str,
@@ -145,14 +168,22 @@ class DeltaCATSQLGateway:
             # Parse query to find table references
             self._ensure_tables_registered(query)
             
-            # Execute query
-            if parameters:
-                result = self.connection.execute(query, parameters)
+            # Execute query with pooled or direct connection
+            if self._use_pool:
+                with self._duckdb_pool.get_connection() as conn:
+                    if parameters:
+                        result = conn.execute(query, parameters)
+                    else:
+                        result = conn.execute(query)
+                    # Return as Arrow Table (zero-copy)
+                    return result.arrow()
             else:
-                result = self.connection.execute(query)
-            
-            # Return as Arrow Table (zero-copy)
-            return result.arrow()
+                # Use direct connection
+                if parameters:
+                    result = self.connection.execute(query, parameters)
+                else:
+                    result = self.connection.execute(query)
+                return result.arrow()
             
         except Exception as e:
             logger.error(f"SQL query failed: {e}")
@@ -175,10 +206,17 @@ class DeltaCATSQLGateway:
         try:
             self._ensure_tables_registered(query)
             
-            if parameters:
-                return self.connection.execute(query, parameters)
+            if self._use_pool:
+                with self._duckdb_pool.get_connection() as conn:
+                    if parameters:
+                        return conn.execute(query, parameters)
+                    else:
+                        return conn.execute(query)
             else:
-                return self.connection.execute(query)
+                if parameters:
+                    return self.connection.execute(query, parameters)
+                else:
+                    return self.connection.execute(query)
                 
         except Exception as e:
             logger.error(f"SQL execution failed: {e}")
@@ -283,10 +321,7 @@ class DeltaCATSQLGateway:
             
             # Remove from DuckDB if registered
             sql_name = f"{namespace}_{table_name}" if namespace else table_name
-            try:
-                self.connection.unregister(sql_name)
-            except:
-                pass  # Table might not be registered
+            self._cleanup_table(sql_name)
             
             # Clear from cache
             self.catalog_adapter.clear_cache()
@@ -297,6 +332,18 @@ class DeltaCATSQLGateway:
         except Exception as e:
             logger.error(f"Failed to drop table {namespace}.{table_name}: {e}")
             return False
+    
+    def _cleanup_table(self, sql_name: str) -> None:
+        """Clean up a table from DuckDB registry.
+        
+        Args:
+            sql_name: The SQL table name to unregister.
+        """
+        try:
+            import duckdb
+            self.connection.unregister(sql_name)
+        except duckdb.CatalogException:
+            pass  # Table might not be registered
     
     def _arrow_to_deltacat_schema(self, arrow_schema: pa.Schema) -> Schema:
         """Convert Arrow schema to DeltaCAT schema.
@@ -348,7 +395,11 @@ class DeltaCATSQLGateway:
     
     def close(self):
         """Close the DuckDB connection and clear caches."""
-        self.connection.close()
+        if self._use_pool:
+            # Pool connections are managed by the pool
+            pass
+        else:
+            self.connection.close()
         self.catalog_adapter.clear_cache()
     
     def __enter__(self):

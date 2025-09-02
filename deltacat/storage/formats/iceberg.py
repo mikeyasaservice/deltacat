@@ -62,11 +62,12 @@ class IcebergFormat(TableFormat):
                 # For testing with mocked tables, check if load_table is mocked and returns a table
                 if load_table and callable(load_table):
                     try:
+                        from pyiceberg.exceptions import NoSuchNamespaceError, NoSuchTableError
                         self._table = load_table(self.path)
                         if self._table:
                             self._initialized = True
                             return
-                    except:
+                    except (NoSuchNamespaceError, NoSuchTableError):
                         pass
                 
                 # Load catalog based on type

@@ -304,17 +304,26 @@ class DaftCatalog(Catalog):
         try:
             # Check if we can list tables in this namespace
             from deltacat.catalog import list_tables as dc_list_tables
+            from deltacat.exceptions import (
+                CatalogOperationException,
+                TableNotFoundError,
+                NamespaceNotFoundError
+            )
             result = dc_list_tables(namespace=identifier, catalog=self.dc_catalog)
             return True
-        except:
+        except (CatalogOperationException, TableNotFoundError, NamespaceNotFoundError):
             return False
     
     def _has_table(self, identifier: Identifier | str) -> bool:
         """Check if table exists."""
         try:
+            from deltacat.exceptions import (
+                TableNotFoundError,
+                CatalogOperationException
+            )
             self.get_table(identifier)
             return True
-        except:
+        except (TableNotFoundError, CatalogOperationException):
             return False
     
     def _list_namespaces(self, pattern: str | None = None) -> list[Identifier]:

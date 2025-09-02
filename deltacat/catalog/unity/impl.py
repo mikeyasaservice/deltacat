@@ -684,9 +684,10 @@ def namespace_exists(
         return False
     
     try:
+        from databricks.sdk.errors import ResourceDoesNotExist, PermissionDenied
         schemas = inner.workspace.schemas.list(catalog_name=config.catalog_name)
         return any(s.name == namespace for s in schemas)
-    except:
+    except (ResourceDoesNotExist, PermissionDenied):
         return False
 
 
@@ -703,10 +704,11 @@ def table_exists(
         return False
     
     try:
+        from databricks.sdk.errors import ResourceDoesNotExist, PermissionDenied
         full_name = f"{config.catalog_name}.{namespace}.{table}"
         inner.workspace.tables.get(full_name=full_name)
         return True
-    except:
+    except (ResourceDoesNotExist, PermissionDenied):
         return False
 
 
