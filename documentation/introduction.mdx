@@ -3,13 +3,27 @@ title: Introduction to DeltaCAT
 description: A portable, scalable, fast, and Pythonic Data Lakehouse for AI
 ---
 
-# DeltaCAT
+# DeltaCAT 2.0
 
-DeltaCAT is a portable Pythonic Data Lakehouse powered by [Ray](https://github.com/ray-project/ray). It provides a unified interface for managing exabyte-scale data lakes with ACID compliance and multimodal support.
+DeltaCAT is a portable Pythonic Data Lakehouse powered by [Ray](https://github.com/ray-project/ray). Version 2.0 brings enterprise-grade orchestration, enhanced performance optimizations, and a unified interface for managing exabyte-scale data lakes with ACID compliance and multimodal support.
 
 ## What is DeltaCAT?
 
 DeltaCAT combines the best of data lakes and data warehouses into a unified platform that scales from gigabytes to exabytes. It has been successfully deployed in production to [manage exabyte-scale enterprise data lakes at Amazon](https://aws.amazon.com/blogs/opensource/amazons-exabyte-scale-migration-from-apache-spark-to-ray-on-amazon-ec2/).
+
+## What's New in 2.0
+
+### Workflow Orchestration
+- **Transparent Temporal Integration** for managing long-running operations
+- **Automatic Retries** with configurable policies
+- **Background Processing** for queries, ingestion, and maintenance
+- **Scheduled Operations** for periodic table optimization
+
+### Performance Enhancements
+- **Arrow Optimizations** with predicate pushdown and column pruning
+- **Zero-Copy Operations** for efficient memory usage
+- **Memory-Mapped I/O** for faster data access
+- **Intelligent Query Routing** based on workload characteristics
 
 ## Key Features
 
@@ -22,7 +36,7 @@ DeltaCAT automatically routes queries to the optimal compute engine based on dat
 ### Multi-Format Support
 Work seamlessly across different table formats:
 - **Apache Iceberg** with full read/write support and time travel
-- **Delta Lake** integration (coming soon)
+- **Delta Lake** integration with read/write capabilities
 - **Parquet** for high-performance columnar storage
 
 ### Enterprise Ready
@@ -30,14 +44,18 @@ Work seamlessly across different table formats:
 - **Schema Evolution** without data rewriting
 - **Partition Pruning** for automatic query optimization
 - **ACID Transactions** for data consistency
+- **OAuth 2.0 Authentication** with PKCE support
 
 ## Architecture
 
-DeltaCAT is built on four core components:
+DeltaCAT is built on five core components:
 
 <CardGroup cols={2}>
   <Card title="Catalog" icon="folder-tree">
     High-level APIs to create, discover, organize, share, and manage datasets
+  </Card>
+  <Card title="Orchestration" icon="workflow">
+    Workflow management for long-running operations and scheduled tasks
   </Card>
   <Card title="Compute" icon="microchip">
     Distributed data management procedures to read, write, and optimize datasets

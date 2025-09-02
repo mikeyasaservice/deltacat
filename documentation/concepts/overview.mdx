@@ -13,7 +13,7 @@ DeltaCAT is built on four fundamental components that work together to provide a
 graph TD
     A[User Application] --> B[DeltaCAT API]
     B --> C[Catalog Layer]
-    B --> D[Compute Layer]
+    B --> D[Orchestration Layer]
     B --> E[Storage Layer]
     B --> F[Sync Layer]
     
@@ -21,16 +21,19 @@ graph TD
     C --> H[Hive Metastore]
     C --> I[Custom Catalogs]
     
-    D --> J[DuckDB Engine]
-    D --> K[Daft Engine]
-    D --> L[Ray Engine]
+    D --> J[Temporal Workflows]
+    J --> K[Compute Layer]
     
-    E --> M[Iceberg Format]
-    E --> N[Delta Format]
-    E --> O[Parquet Format]
+    K --> L[DuckDB Engine]
+    K --> M[Daft Engine]
+    K --> N[Ray Engine]
     
-    F --> P[Data Warehouses]
-    F --> Q[External Systems]
+    E --> O[Iceberg Format]
+    E --> P[Delta Format]
+    E --> Q[Parquet Format]
+    
+    F --> R[Data Warehouses]
+    F --> S[External Systems]
 ```
 
 ## Component Overview
@@ -52,7 +55,18 @@ catalog.create_namespace("production")
 catalog.list_tables("production")
 ```
 
-### 2. Compute Layer
+### 2. Orchestration Layer
+
+The Orchestration layer manages long-running operations using Temporal workflows:
+
+- **Query Execution**: Manages long-running analytical queries
+- **Data Ingestion**: Handles ETL pipelines and batch imports
+- **Table Maintenance**: Automates optimization, compaction, and cleanup
+- **Scheduled Operations**: Runs periodic maintenance tasks
+
+This layer is transparent to users - all operations are triggered through the REST API while Temporal handles the orchestration behind the scenes.
+
+### 3. Compute Layer
 
 The Compute layer automatically selects the optimal engine for your workload:
 
@@ -67,7 +81,7 @@ engine = create_engine()
 result = engine.execute("SELECT * FROM table")  # Auto-selects best engine
 ```
 
-### 3. Storage Layer
+### 4. Storage Layer
 
 The Storage layer handles data persistence and format management:
 
@@ -83,7 +97,7 @@ table = UnifiedTableInterface("s3://bucket/table")
 metadata = table.get_metadata()
 ```
 
-### 4. Sync Layer
+### 5. Sync Layer
 
 The Sync layer enables data movement between systems:
 

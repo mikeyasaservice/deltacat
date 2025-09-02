@@ -63,11 +63,12 @@ class DeltaCATSQLGateway:
         if self._use_pool:
             # Use connection pool with a shared temporary database
             import tempfile
+            import atexit
             import os
             
-            # Create a unique temporary path for the database
-            temp_dir = tempfile.gettempdir()
-            db_path = os.path.join(temp_dir, f"deltacat_{os.getpid()}_{id(self)}.duckdb")
+            # Create a temporary file with automatic cleanup
+            temp_fd, db_path = tempfile.mkstemp(suffix='.duckdb', prefix=f'deltacat_{os.getpid()}_')
+            os.close(temp_fd)  # Close the file descriptor, we just need the path
             
             # Remove file if it exists (from previous failed run)
             if os.path.exists(db_path):
@@ -78,6 +79,11 @@ class DeltaCATSQLGateway:
             init_conn.close()
             
             self._db_file = db_path  # Store path for cleanup
+            
+            # Register cleanup handler for this specific instance
+            def cleanup_temp_db():
+                self._cleanup_temp_database()
+            atexit.register(cleanup_temp_db)
             self._pool_manager = get_pool_manager()
             
             # Pass the database path in the config so all connections share the same database
@@ -97,8 +103,12 @@ class DeltaCATSQLGateway:
             try:
                 self.iceberg_adapter = IcebergSQLAdapter(catalog_name, self.connection)
                 logger.info("Iceberg optimization enabled")
+            except ImportError as e:
+                logger.warning(f"Iceberg dependencies not available: {e}")
+            except (ValueError, RuntimeError) as e:
+                logger.warning(f"Could not initialize Iceberg optimization: {e}")
             except Exception as e:
-                logger.warning(f"Could not enable Iceberg optimization: {e}")
+                logger.warning(f"Unexpected error enabling Iceberg optimization: {type(e).__name__}: {e}")
         
         # Register all tables if requested
         if auto_register_tables:
@@ -186,8 +196,14 @@ class DeltaCATSQLGateway:
             self._registered_tables[sql_name] = (table_name, namespace, dataset)
             
             return True
+        except duckdb.CatalogException as e:
+            logger.error(f"DuckDB catalog error registering table {sql_name}: {e}")
+            return False
+        except ValueError as e:
+            logger.error(f"Invalid table configuration for {sql_name}: {e}")
+            return False
         except Exception as e:
-            logger.error(f"Failed to register table {sql_name}: {e}")
+            logger.error(f"Unexpected error registering table {sql_name}: {type(e).__name__}: {e}")
             return False
     
     def _get_connection(self):
@@ -233,8 +249,14 @@ class DeltaCATSQLGateway:
                     result = self.connection.execute(query)
                 return result.arrow()
             
+        except duckdb.ParserException as e:
+            logger.error(f"SQL syntax error: {e}")
+            raise
+        except duckdb.CatalogException as e:
+            logger.error(f"Table or column not found: {e}")
+            raise
         except Exception as e:
-            logger.error(f"SQL query failed: {e}")
+            logger.error(f"Unexpected SQL query error: {type(e).__name__}: {e}")
             raise
     
     def execute(
@@ -268,8 +290,14 @@ class DeltaCATSQLGateway:
                 else:
                     return self.connection.execute(query)
                 
+        except duckdb.ParserException as e:
+            logger.error(f"SQL syntax error in execution: {e}")
+            raise
+        except duckdb.CatalogException as e:
+            logger.error(f"Catalog error during execution: {e}")
+            raise
         except Exception as e:
-            logger.error(f"SQL execution failed: {e}")
+            logger.error(f"Unexpected SQL execution error: {type(e).__name__}: {e}")
             raise
     
     def _ensure_tables_registered(self, query: str):
@@ -334,8 +362,14 @@ class DeltaCATSQLGateway:
             logger.info(f"Created table {namespace}.{table_name}")
             return True
             
+        except duckdb.CatalogException as e:
+            logger.error(f"DuckDB catalog error creating table {namespace}.{table_name}: {e}")
+            return False
+        except pa.ArrowException as e:
+            logger.error(f"Arrow error creating table {namespace}.{table_name}: {e}")
+            return False
         except Exception as e:
-            logger.error(f"Failed to create table {namespace}.{table_name}: {e}")
+            logger.error(f"Unexpected error creating table {namespace}.{table_name}: {type(e).__name__}: {e}")
             return False
     
     def drop_table(
@@ -379,8 +413,11 @@ class DeltaCATSQLGateway:
             logger.info(f"Dropped table {namespace}.{table_name}")
             return True
             
+        except duckdb.CatalogException as e:
+            logger.error(f"Table {namespace}.{table_name} not found: {e}")
+            return False
         except Exception as e:
-            logger.error(f"Failed to drop table {namespace}.{table_name}: {e}")
+            logger.error(f"Unexpected error dropping table {namespace}.{table_name}: {type(e).__name__}: {e}")
             return False
     
     def _cleanup_table(self, sql_name: str) -> None:
@@ -443,13 +480,9 @@ class DeltaCATSQLGateway:
         result = self.connection.execute(f"EXPLAIN {query}")
         return result.fetchall()[0][1] if result else ""
     
-    def close(self):
-        """Close the DuckDB connection and clear caches."""
-        if self.connection:
-            self.connection.close()
-        
-        if self._use_pool and self._db_file:
-            # Clean up temporary database file
+    def _cleanup_temp_database(self):
+        """Clean up temporary database files."""
+        if self._db_file:
             import os
             try:
                 db_path = self._db_file
@@ -460,8 +493,21 @@ class DeltaCATSQLGateway:
                         wal_path = db_path + suffix
                         if os.path.exists(wal_path):
                             os.unlink(wal_path)
-            except Exception as e:
+                    logger.debug(f"Cleaned up temporary database file: {db_path}")
+            except (OSError, IOError) as e:
                 logger.warning(f"Failed to clean up temporary database file: {e}")
+            except Exception as e:
+                logger.warning(f"Unexpected error during cleanup: {type(e).__name__}: {e}")
+            finally:
+                self._db_file = None
+    
+    def close(self):
+        """Close the DuckDB connection and clear caches."""
+        if self.connection:
+            self.connection.close()
+        
+        if self._use_pool:
+            self._cleanup_temp_database()
         
         self.catalog_adapter.clear_cache()
     

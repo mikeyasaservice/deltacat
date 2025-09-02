@@ -72,8 +72,10 @@ class JsonFormatter(logging.Formatter):
             try:
                 env_context = json.loads(DELTACAT_LOGGER_CONTEXT)
                 self.additional_context.update(env_context)
-            except Exception:
-                pass
+            except (json.JSONDecodeError, ValueError, TypeError) as e:
+                # Log at module level since logger might not be configured yet
+                import sys
+                print(f"Warning: Failed to parse DELTACAT_LOGGER_CONTEXT JSON: {e}", file=sys.stderr)
 
     def usesTime(self) -> bool:
         """

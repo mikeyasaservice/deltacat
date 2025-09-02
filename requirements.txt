@@ -57,8 +57,5 @@ opentelemetry-api ==1.36.0
 opentelemetry-sdk ==1.36.0
 opentelemetry-exporter-otlp ==1.36.0
 opentelemetry-instrumentation ==0.57b0
-opentelemetry-instrumentation-botocore ==0.57b0
-opentelemetry-instrumentation-boto3sqs ==0.57b0
-opentelemetry-instrumentation-redis ==0.57b0
-opentelemetry-instrumentation-requests ==0.57b0
-opentelemetry-instrumentation-aws-lambda ==0.57b0
+
+pymemcache ==4.0.0

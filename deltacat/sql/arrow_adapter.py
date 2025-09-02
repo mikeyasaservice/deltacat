@@ -15,7 +15,6 @@ from deltacat.storage import Delta, Manifest
 from deltacat.types.media import ContentType
 from deltacat.utils.pyarrow import (
     content_type_to_reader_kwargs,
-    content_type_to_pyarrow_read_func,
 )
 from deltacat.config.performance import ArrowOptimizationConfig, get_performance_config
 from deltacat.catalog.cache.metadata_cache import get_metadata_cache
@@ -399,7 +398,8 @@ def coalesce_small_fragments(
             else:
                 # Fallback: estimate based on schema and row count
                 size = min_size_bytes  # Conservative estimate
-        except:
+        except (OSError, IOError, AttributeError) as e:
+            logger.debug(f"Failed to get fragment size: {e}")
             size = min_size_bytes
         
         if current_size + size > target_size_bytes and current_group:
@@ -507,7 +507,8 @@ def estimate_dataset_size(dataset: ds.Dataset) -> int:
                 for row_group in range(metadata.num_row_groups):
                     rg_metadata = metadata.row_group(row_group)
                     total_size += rg_metadata.total_byte_size
-            except:
+            except (OSError, IOError, AttributeError, pa.ArrowException) as e:
+                logger.debug(f"Failed to read Parquet metadata for size estimation: {e}")
                 # Fallback estimate
                 total_size += 100 * 1024 * 1024  # 100MB default
         else:

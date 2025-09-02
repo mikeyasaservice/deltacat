@@ -241,6 +241,10 @@ class UnifiedComputeEngine:
     
     This is the main user-facing API for executing queries across different
     compute engines with automatic optimization.
+    
+    Note: Retry logic is intentionally not implemented at this layer.
+    The Temporal workflow orchestration in the Go backend handles retries
+    with sophisticated policies, observability, and idempotency guarantees.
     """
     
     def __init__(
@@ -519,10 +523,9 @@ class UnifiedComputeEngine:
                 # Process in parallel using Ray
                 logger.info(f"Processing query with {num_actors} Ray actors")
                 
-                # For now, collect the data and process
-                # In production, this would be done in a distributed manner
-                result_table = dataset.to_pandas()
-                result_table = pa.Table.from_pandas(result_table)
+                # Use Ray's native Arrow support for better performance
+                # This avoids the overhead of pandas conversion
+                result_table = dataset.to_arrow()
                 
                 logger.info(f"Ray query execution completed")
                 return result_table

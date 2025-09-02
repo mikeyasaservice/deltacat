@@ -74,16 +74,42 @@ func Delete(ctx context.Context, keys ...string) error {
 
 // InvalidatePattern invalidates all keys matching a pattern
 func InvalidatePattern(ctx context.Context, pattern string) error {
+	const batchSize = 1000 // Process keys in batches to avoid memory spikes
+	
 	iter := Cache.Scan(ctx, 0, pattern, 0).Iterator()
-	var keys []string
+	var batch []string
+	deleted := 0
+	
 	for iter.Next(ctx) {
-		keys = append(keys, iter.Val())
+		batch = append(batch, iter.Val())
+		
+		// Delete when batch is full
+		if len(batch) >= batchSize {
+			if err := Cache.Del(ctx, batch...).Err(); err != nil {
+				return fmt.Errorf("failed to delete batch of %d keys: %w", len(batch), err)
+			}
+			deleted += len(batch)
+			batch = batch[:0] // Reset batch slice
+		}
 	}
+	
 	if err := iter.Err(); err != nil {
-		return err
+		return fmt.Errorf("error scanning keys: %w", err)
 	}
-	if len(keys) > 0 {
-		return Cache.Del(ctx, keys...).Err()
+	
+	// Delete remaining keys in final batch
+	if len(batch) > 0 {
+		if err := Cache.Del(ctx, batch...).Err(); err != nil {
+			return fmt.Errorf("failed to delete final batch of %d keys: %w", len(batch), err)
+		}
+		deleted += len(batch)
 	}
+	
+	if deleted > 0 {
+		zapLogger, _ := zap.NewProduction()
+		sugar := zapLogger.Sugar()
+		sugar.Debugf("Invalidated %d keys matching pattern: %s", deleted, pattern)
+	}
+	
 	return nil
 }

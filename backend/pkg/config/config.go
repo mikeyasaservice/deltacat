@@ -41,6 +41,7 @@ type Config struct {
 	
 	// Python DeltaCAT
 	PythonAPIURL      string `mapstructure:"PYTHON_API_URL"`
+	PythonServiceURL  string `mapstructure:"PYTHON_SERVICE_URL"`
 	
 	// Observability
 	OTLPEndpoint      string `mapstructure:"OTLP_ENDPOINT"`
@@ -71,6 +72,7 @@ func Load() *Config {
 	viper.SetDefault("TEMPORAL_HOST", "localhost:7233")
 	viper.SetDefault("TEMPORAL_NAMESPACE", "default")
 	viper.SetDefault("PYTHON_API_URL", "http://localhost:8000")
+	viper.SetDefault("PYTHON_SERVICE_URL", "http://localhost:8888")
 	viper.SetDefault("LOG_LEVEL", "info")
 	
 	// Try to read .env file

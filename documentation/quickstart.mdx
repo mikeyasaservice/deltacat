@@ -130,6 +130,48 @@ large_result = engine.execute("""
 """)
 ```
 
+## Background Processing (New in 2.0)
+
+Execute long-running operations in the background with automatic orchestration:
+
+```python
+# Submit query for background execution
+job = deltacat.execute_query(
+    sql="SELECT * FROM huge_table WHERE year = 2024",
+    async_mode=True  # Returns immediately
+)
+
+print(f"Job ID: {job.id}")
+
+# Check status
+status = deltacat.get_query_status(job.id)
+print(f"Status: {status.state}")  # running, completed, failed
+
+# Get results when ready
+if status.state == "completed":
+    result = deltacat.get_query_result(job.id)
+```
+
+### Scheduled Operations
+
+Automate table maintenance and data ingestion:
+
+```python
+# Schedule daily table optimization
+deltacat.schedule_maintenance(
+    table="sales_fact",
+    schedule="0 2 * * *",  # 2 AM daily
+    operations=["optimize", "compact"]
+)
+
+# Schedule hourly data ingestion
+deltacat.schedule_ingestion(
+    source="s3://incoming/*.parquet",
+    target="staging_table",
+    schedule="0 * * * *"  # Every hour
+)
+```
+
 ## Table Formats
 
 Work with different table formats seamlessly:

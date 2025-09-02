@@ -418,7 +418,8 @@ class HealthCheckManager:
             
             # Collect results
             unhealthy_count = 0
-            degraded_count = 0
+            healthy_count = 0
+            total_count = len(futures)
             
             for future in futures:
                 name = futures[future]
@@ -428,6 +429,8 @@ class HealthCheckManager:
                     
                     if not health.healthy:
                         unhealthy_count += 1
+                    else:
+                        healthy_count += 1
                 except TimeoutError:
                     results["components"][name] = self._format_health(
                         ComponentHealth(
@@ -446,10 +449,15 @@ class HealthCheckManager:
                     unhealthy_count += 1
         
         # Determine overall status
-        if unhealthy_count > 0:
+        if unhealthy_count == total_count:
+            # All components are unhealthy
             results["status"] = HealthCheckStatus.UNHEALTHY
-        elif degraded_count > 0:
+        elif unhealthy_count > 0:
+            # Some components are unhealthy (degraded state)
             results["status"] = HealthCheckStatus.DEGRADED
+        else:
+            # All components are healthy
+            results["status"] = HealthCheckStatus.HEALTHY
         
         self._status = results["status"]
         return results

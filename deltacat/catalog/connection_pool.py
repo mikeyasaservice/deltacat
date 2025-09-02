@@ -1,12 +1,14 @@
 """Connection pooling for catalog operations."""
 
+import atexit
 import logging
 import threading
 import time
+import weakref
 from collections import deque
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
-from typing import Any, Callable, Deque, Dict, Generic, Optional, TypeVar, Union
+from typing import Any, Callable, Deque, Dict, Generic, Optional, Set, TypeVar, Union
 import duckdb
 from deltacat import logs
 from deltacat.config.performance import ConnectionPoolConfig, get_performance_config
@@ -27,15 +29,23 @@ class PooledConnection(Generic[T]):
     usage_count: int = 0
     is_valid: bool = True
     pool_id: str = ""
+    checked_out_at: Optional[float] = None
     
     def use(self) -> None:
         """Mark the connection as used."""
         self.last_used_at = time.time()
         self.usage_count += 1
+        self.checked_out_at = time.time()
     
     def is_expired(self, max_idle_time: int) -> bool:
         """Check if the connection has been idle too long."""
         return (time.time() - self.last_used_at) > max_idle_time
+    
+    def is_orphaned(self, max_checkout_time: int = 3600) -> bool:
+        """Check if connection has been checked out for too long."""
+        if self.checked_out_at is None:
+            return False
+        return (time.time() - self.checked_out_at) > max_checkout_time
 
 
 class ConnectionPoolError(DeltaCATException):
@@ -75,13 +85,61 @@ class ConnectionPool(Generic[T]):
         self._lock = threading.RLock() if self.config.thread_safe else None
         self._closed = False
         self._created_count = 0
+        self._health_check_thread: Optional[threading.Thread] = None
+        self._stop_health_check = threading.Event()
         
         # Pre-create minimum connections
         for _ in range(self.config.min_size):
             conn = self._create_and_add_connection()
             self._pool.append(conn)
         
+        # Start health check thread if thread-safe
+        if self.config.thread_safe:
+            self._start_health_check_thread()
+        
         logger.info(f"Initialized connection pool '{name}' with {self.config.min_size} connections")
+    
+    def _start_health_check_thread(self) -> None:
+        """Start background thread for health checking."""
+        def health_check_loop():
+            while not self._stop_health_check.is_set():
+                try:
+                    self._reclaim_orphaned_connections()
+                    self._validate_and_cleanup()
+                except Exception as e:
+                    logger.warning(f"Error in health check thread for pool '{self.name}': {e}")
+                # Check every 30 seconds
+                self._stop_health_check.wait(30)
+        
+        self._health_check_thread = threading.Thread(
+            target=health_check_loop,
+            name=f"PoolHealthCheck-{self.name}",
+            daemon=True
+        )
+        self._health_check_thread.start()
+    
+    def _reclaim_orphaned_connections(self) -> None:
+        """Reclaim connections that have been checked out for too long."""
+        with self._lock if self._lock else nullcontext():
+            orphaned = []
+            for conn_id, conn in list(self._in_use.items()):
+                if conn.is_orphaned():
+                    logger.warning(
+                        f"Reclaiming orphaned connection {conn.pool_id} in pool '{self.name}' "
+                        f"(checked out for {time.time() - conn.checked_out_at:.1f}s)"
+                    )
+                    orphaned.append((conn_id, conn))
+            
+            # Reclaim orphaned connections
+            for conn_id, conn in orphaned:
+                del self._in_use[conn_id]
+                conn.is_valid = False
+                try:
+                    self.close_connection(conn.connection)
+                except Exception as e:
+                    logger.warning(f"Error closing orphaned connection in pool '{self.name}': {e}")
+                finally:
+                    self._created_count -= 1
     
     def _create_and_add_connection(self) -> PooledConnection[T]:
         """Create a new connection and add it to the pool."""
@@ -129,7 +187,8 @@ class ConnectionPool(Generic[T]):
                 self.close_connection(conn.connection)
             except Exception as e:
                 logger.warning(f"Error closing connection in pool '{self.name}': {e}")
-            self._created_count -= 1
+            finally:
+                self._created_count -= 1
     
     @contextmanager
     def get_connection(self, timeout: Optional[int] = None):
@@ -162,6 +221,7 @@ class ConnectionPool(Generic[T]):
                         yield pooled_conn.connection
                     finally:
                         # Return connection to pool
+                        pooled_conn.checked_out_at = None  # Mark as returned
                         with self._lock if self._lock else nullcontext():
                             del self._in_use[id(pooled_conn.connection)]
                             if pooled_conn.is_valid and not self._closed:
@@ -171,7 +231,8 @@ class ConnectionPool(Generic[T]):
                                     self.close_connection(pooled_conn.connection)
                                 except Exception as e:
                                     logger.warning(f"Error returning connection to pool '{self.name}': {e}")
-                                self._created_count -= 1
+                                finally:
+                                    self._created_count -= 1
                     return
                 
                 # Try to create a new connection if below max size
@@ -187,13 +248,19 @@ class ConnectionPool(Generic[T]):
                         f"(timeout={timeout}s, in_use={len(self._in_use)}, pool_size={len(self._pool)})"
                     )
                 
-                # Wait a bit before retrying
-                time.sleep(0.1)
+                # Exponential backoff with jitter
+                wait_time = min(0.01 * (2 ** min(5, int((time.time() - start_time) / 2))), 1.0)
+                time.sleep(wait_time + (time.time() % 0.01))  # Add jitter
     
     def close(self) -> None:
         """Close all connections in the pool."""
         with self._lock if self._lock else nullcontext():
             self._closed = True
+            
+            # Stop health check thread
+            if self._health_check_thread:
+                self._stop_health_check.set()
+                self._health_check_thread.join(timeout=5)
             
             # Close pooled connections
             for conn in self._pool:
@@ -217,13 +284,60 @@ class ConnectionPool(Generic[T]):
     def get_stats(self) -> Dict[str, Any]:
         """Get pool statistics."""
         with self._lock if self._lock else nullcontext():
+            orphaned_conns = [conn for conn in self._in_use.values() if conn.is_orphaned()]
+            avg_age = 0
+            max_age = 0
+            if self._pool or self._in_use.values():
+                all_conns = list(self._pool) + list(self._in_use.values())
+                ages = [time.time() - conn.created_at for conn in all_conns]
+                avg_age = sum(ages) / len(ages) if ages else 0
+                max_age = max(ages) if ages else 0
+            
             return {
                 "name": self.name,
                 "total_created": self._created_count,
                 "available": len(self._pool),
                 "in_use": len(self._in_use),
                 "closed": self._closed,
+                "orphaned_connections": len(orphaned_conns),
+                "orphaned_details": [
+                    {
+                        "pool_id": conn.pool_id,
+                        "checked_out_duration": time.time() - conn.checked_out_at if conn.checked_out_at else 0
+                    }
+                    for conn in orphaned_conns
+                ],
+                "avg_connection_age_seconds": avg_age,
+                "max_connection_age_seconds": max_age,
+                "health_check_running": self._health_check_thread and self._health_check_thread.is_alive() if self._health_check_thread else False,
             }
+    
+    def log_pool_metrics(self) -> None:
+        """Log detailed pool metrics for monitoring."""
+        stats = self.get_stats()
+        
+        # Log warning if we have orphaned connections
+        if stats["orphaned_connections"] > 0:
+            logger.warning(
+                f"Pool '{self.name}' has {stats['orphaned_connections']} orphaned connections. "
+                f"Details: {stats['orphaned_details']}"
+            )
+        
+        # Log warning if pool is near capacity
+        utilization = (stats["in_use"] / self.config.max_size) * 100 if self.config.max_size > 0 else 0
+        if utilization > 80:
+            logger.warning(
+                f"Pool '{self.name}' is at {utilization:.1f}% capacity "
+                f"({stats['in_use']}/{self.config.max_size} connections in use)"
+            )
+        
+        # Log info with general metrics
+        logger.info(
+            f"Pool '{self.name}' metrics: "
+            f"available={stats['available']}, in_use={stats['in_use']}, "
+            f"avg_age={stats['avg_connection_age_seconds']:.1f}s, "
+            f"max_age={stats['max_connection_age_seconds']:.1f}s"
+        )
 
 
 class DuckDBConnectionPool(ConnectionPool[duckdb.DuckDBPyConnection]):
@@ -270,6 +384,8 @@ class DuckDBConnectionPool(ConnectionPool[duckdb.DuckDBPyConnection]):
 class ConnectionPoolManager:
     """Manager for multiple connection pools."""
     
+    _instances: weakref.WeakValueDictionary = weakref.WeakValueDictionary()
+    
     def __init__(self, config: Optional[ConnectionPoolConfig] = None):
         """Initialize the connection pool manager.
         
@@ -279,6 +395,9 @@ class ConnectionPoolManager:
         self.config = config or get_performance_config().connection_pool
         self._pools: Dict[str, ConnectionPool] = {}
         self._lock = threading.RLock()
+        
+        # Track instance for cleanup
+        ConnectionPoolManager._instances[id(self)] = self
         
         logger.info("Initialized ConnectionPoolManager")
     
@@ -364,13 +483,21 @@ class ConnectionPoolManager:
 
 # Global connection pool manager
 _global_pool_manager: Optional[ConnectionPoolManager] = None
+_cleanup_registered = False
 
 
 def get_pool_manager() -> ConnectionPoolManager:
     """Get the global connection pool manager."""
-    global _global_pool_manager
+    global _global_pool_manager, _cleanup_registered
     if _global_pool_manager is None:
         _global_pool_manager = ConnectionPoolManager()
+        
+        # Register cleanup handler on first creation
+        if not _cleanup_registered:
+            atexit.register(_cleanup_on_exit)
+            _cleanup_registered = True
+            logger.debug("Registered atexit handler for connection pool cleanup")
+    
     return _global_pool_manager
 
 
@@ -380,6 +507,26 @@ def reset_pool_manager() -> None:
     if _global_pool_manager:
         _global_pool_manager.close_all()
     _global_pool_manager = None
+
+
+def _cleanup_on_exit() -> None:
+    """Clean up all connection pools on process exit."""
+    global _global_pool_manager
+    
+    # Clean up global pool manager
+    if _global_pool_manager:
+        try:
+            logger.info("Cleaning up global connection pool manager on exit")
+            _global_pool_manager.close_all()
+        except Exception as e:
+            logger.error(f"Error cleaning up global pool manager on exit: {e}")
+    
+    # Clean up any remaining instances
+    for instance in list(ConnectionPoolManager._instances.values()):
+        try:
+            instance.close_all()
+        except Exception as e:
+            logger.error(f"Error cleaning up pool manager instance on exit: {e}")
 
 
 # Context manager helper

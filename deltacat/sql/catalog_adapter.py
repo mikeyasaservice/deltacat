@@ -155,8 +155,14 @@ class CatalogAdapter:
                 
             return arrow_dataset
             
+        except (ValueError, KeyError, AttributeError) as e:
+            logger.error(f"Failed to access table '{cache_key}': {type(e).__name__}: {e}")
+            return None
+        except pa.ArrowException as e:
+            logger.error(f"Arrow error creating dataset for '{cache_key}': {e}")
+            return None
         except Exception as e:
-            logger.error(f"Failed to create Arrow Dataset for {cache_key}: {e}")
+            logger.error(f"Unexpected error creating Arrow Dataset for '{cache_key}': {type(e).__name__}: {e}")
             return None
     
     def _extract_parquet_files(self, table_def) -> List[str]:
@@ -191,8 +197,12 @@ class CatalogAdapter:
                 for file_info in file_info_list:
                     if file_info.path.endswith('.parquet'):
                         file_paths.append(f"{location}/{file_info.path}")
+            except (OSError, IOError) as e:
+                logger.warning(f"I/O error listing files in {location}: {e}")
+            except pa.ArrowException as e:
+                logger.warning(f"Arrow error listing files in {location}: {e}")
             except Exception as e:
-                logger.warning(f"Could not list files in {location}: {e}")
+                logger.warning(f"Unexpected error listing files in {location}: {type(e).__name__}: {e}")
                 
         return file_paths
     
