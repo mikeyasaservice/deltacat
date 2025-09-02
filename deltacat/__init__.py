@@ -95,7 +95,7 @@ if importlib.util.find_spec("daft") is not None:
 
 deltacat.logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-__version__ = "2.0.0b12"
+__version__ = "2.0.0rc1"
 
 
 __all__ = [

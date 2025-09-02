@@ -32,12 +32,25 @@ class CatalogAdapter:
         self.catalog_name = catalog_name
         self._table_cache: Dict[str, ds.Dataset] = {}
         
+        # Initialize metadata cache and lazy loading
+        from deltacat.catalog.cache.metadata_cache import get_metadata_cache
+        from deltacat.config.performance import get_performance_config
+        
+        self._metadata_cache = get_metadata_cache()
+        self._perf_config = get_performance_config()
+        
     def list_all_tables(self) -> List[Tuple[str, str]]:
         """List all tables in the catalog.
         
         Returns:
             List of (namespace, table_name) tuples.
         """
+        # Check cache first
+        cache_key = f"catalog:{self.catalog_name}:tables"
+        cached_tables = self._metadata_cache.get(cache_key, "table_list")
+        if cached_tables is not None:
+            return cached_tables
+        
         tables = []
         
         # List all namespaces
@@ -52,7 +65,10 @@ class CatalogAdapter:
             
             for table_def in tables_result.all_items():
                 tables.append((namespace.name, table_def.table.name))
-                
+        
+        # Cache the result
+        self._metadata_cache.set(cache_key, tables, "table_list")
+        
         return tables
     
     def get_table_as_arrow_dataset(
@@ -73,18 +89,38 @@ class CatalogAdapter:
         """
         cache_key = f"{namespace or 'default'}.{table_name}"
         
-        # Check cache first
+        # Check local cache first
         if cache_key in self._table_cache and version is None:
             return self._table_cache[cache_key]
         
+        # Check metadata cache
+        metadata_cache_key = f"dataset:{cache_key}:{version or 'latest'}"
+        cached_dataset = self._metadata_cache.get(metadata_cache_key, "dataset")
+        if cached_dataset is not None:
+            self._table_cache[cache_key] = cached_dataset
+            return cached_dataset
+        
         try:
-            # Get table definition from catalog
-            table_def = get_table(
-                name=table_name,
-                namespace=namespace,
-                catalog=self.catalog_name,
-                table_version=version,
-            )
+            # Use lazy loading if enabled
+            from deltacat.catalog.lazy_schema import create_lazy_table_definition
+            
+            # Get table definition from catalog (with lazy loading)
+            def load_table_def():
+                return get_table(
+                    name=table_name,
+                    namespace=namespace,
+                    catalog=self.catalog_name,
+                    table_version=version,
+                )
+            
+            if self._perf_config.lazy_loading.enabled:
+                table_def = create_lazy_table_definition(
+                    load_table_def,
+                    cache_key=f"table_def:{cache_key}",
+                    config=self._perf_config.lazy_loading,
+                )
+            else:
+                table_def = load_table_def()
             
             if not table_def:
                 logger.warning(f"Table {cache_key} not found in catalog")
@@ -97,15 +133,25 @@ class CatalogAdapter:
                 logger.warning(f"No Parquet files found for table {cache_key}")
                 return None
             
-            # Create Arrow Dataset from Parquet files
+            # Create Arrow Dataset from Parquet files with optimizations
+            from deltacat.sql.arrow_adapter import coalesce_small_fragments
+            
             arrow_dataset = self._create_arrow_dataset(
                 file_paths,
                 table_def.table.partition_keys if hasattr(table_def.table, 'partition_keys') else None
             )
             
-            # Cache the dataset (only for non-versioned requests)
+            # Apply fragment coalescing optimization
+            if self._perf_config.arrow_optimization.enabled:
+                arrow_dataset = coalesce_small_fragments(
+                    arrow_dataset,
+                    self._perf_config.arrow_optimization
+                )
+            
+            # Cache the dataset
             if version is None:
                 self._table_cache[cache_key] = arrow_dataset
+                self._metadata_cache.set(metadata_cache_key, arrow_dataset, "dataset")
                 
             return arrow_dataset
             
@@ -214,6 +260,10 @@ class CatalogAdapter:
     def clear_cache(self):
         """Clear the cached Arrow Datasets."""
         self._table_cache.clear()
+        # Also clear relevant metadata cache entries
+        if self._metadata_cache:
+            # Clear dataset and table list caches for this catalog
+            self._metadata_cache.delete(f"catalog:{self.catalog_name}:tables")
     
     def get_table_schema(
         self,

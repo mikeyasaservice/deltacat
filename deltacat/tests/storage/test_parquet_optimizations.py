@@ -10,6 +10,7 @@ import pytest
 import pyarrow as pa
 import pyarrow.parquet as pq
 import numpy as np
+from datetime import datetime
 from typing import List, Dict, Any
 from unittest.mock import patch, MagicMock
 
@@ -35,7 +36,7 @@ class TestPredicatePushdown:
                 'value': np.random.randn(n_rows),
                 'category': np.random.choice(['A', 'B', 'C', 'D'], n_rows),
                 'timestamp': pa.array(
-                    [pa.timestamp('ms').now() for _ in range(n_rows)]
+                    [datetime.now() for _ in range(n_rows)], type=pa.timestamp('ms')
                 ),
             }
             table = pa.table(data)
@@ -57,24 +58,23 @@ class TestPredicatePushdown:
     def test_predicate_pushdown_reduces_rows_read(self, large_parquet_file):
         """Test that predicate pushdown actually reduces rows read from disk."""
         reader = OptimizedParquetReader(large_parquet_file)
+        reader.enable_metrics()  # Enable metrics tracking
         
         # Define filter: value > 1.0 (should match ~15% of rows statistically)
         predicate = pa.compute.greater(pa.compute.field('value'), pa.scalar(1.0))
         
         # Read with predicate pushdown
-        with patch.object(reader, '_track_io_metrics') as mock_metrics:
-            result = reader.read_with_pushdown(
-                predicate=predicate,
-                columns=['id', 'value']
-            )
-            
-            # Verify that we only read row groups that could contain matching rows
-            assert mock_metrics.called
-            metrics = mock_metrics.call_args[0][0]
-            
-            # Should skip row groups where max(value) < 1.0
-            assert metrics['row_groups_read'] < metrics['total_row_groups']
-            assert metrics['rows_read'] < 100000
+        result = reader.read_with_pushdown(
+            predicate=predicate,
+            columns=['id', 'value']
+        )
+        
+        # Get metrics
+        metrics = reader.get_metrics()
+        
+        # Should skip row groups where max(value) < 1.0
+        assert metrics['row_groups_read'] < metrics['total_row_groups']
+        assert metrics['rows_read'] < 100000
             
         # Verify result correctness
         assert len(result) > 0

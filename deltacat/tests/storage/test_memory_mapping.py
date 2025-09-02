@@ -10,6 +10,7 @@ import pytest
 import pyarrow as pa
 import pyarrow.parquet as pq
 import numpy as np
+from datetime import datetime
 import psutil
 import gc
 from typing import List, Dict, Any
@@ -53,7 +54,7 @@ class TestMemoryMappedReading:
                     'id': pa.array(range(chunk_start, chunk_end)),
                     'value': pa.array(np.random.randn(chunk_len)),
                     'category': pa.array(np.random.choice(['A', 'B', 'C'], chunk_len)),
-                    'timestamp': pa.array([pa.timestamp('ms').now()] * chunk_len),
+                    'timestamp': pa.array([datetime.now()] * chunk_len, type=pa.timestamp('ms')),
                 }
                 chunk_table = pa.table(chunk_data, schema=schema)
                 writer.write_table(chunk_table)

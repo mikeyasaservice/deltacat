@@ -56,16 +56,40 @@ class DeltaCATSQLGateway:
         perf_config = get_performance_config()
         config = connection_config or {}
         
-        if use_connection_pool and perf_config.connection_pool.enabled:
-            # Use connection pool
+        self._use_pool = use_connection_pool and perf_config.connection_pool.enabled
+        
+        # When using connection pooling, we need a shared database
+        # Otherwise each connection would have its own in-memory database
+        if self._use_pool:
+            # Use connection pool with a shared temporary database
+            import tempfile
+            import os
+            
+            # Create a unique temporary path for the database
+            temp_dir = tempfile.gettempdir()
+            db_path = os.path.join(temp_dir, f"deltacat_{os.getpid()}_{id(self)}.duckdb")
+            
+            # Remove file if it exists (from previous failed run)
+            if os.path.exists(db_path):
+                os.unlink(db_path)
+            
+            # Initialize the database with the first connection
+            init_conn = duckdb.connect(db_path, config=config)
+            init_conn.close()
+            
+            self._db_file = db_path  # Store path for cleanup
             self._pool_manager = get_pool_manager()
-            self._duckdb_pool = self._pool_manager.get_duckdb_pool(**config)
-            self.connection = None  # Will get from pool when needed
-            self._use_pool = True
+            
+            # Pass the database path in the config so all connections share the same database
+            pool_config = {**config, 'database': db_path}
+            self._duckdb_pool = self._pool_manager.get_duckdb_pool(**pool_config)
+            
+            # Also create a persistent connection for registrations
+            self.connection = duckdb.connect(db_path, config=config)
         else:
-            # Direct connection
+            # Direct connection with in-memory database
             self.connection = duckdb.connect(":memory:", config=config)
-            self._use_pool = False
+            self._db_file = None
         
         # Initialize Iceberg adapter if optimization is enabled
         self.iceberg_adapter = None
@@ -135,9 +159,32 @@ class DeltaCATSQLGateway:
         sql_name = alias or (f"{namespace}_{table_name}" if namespace else table_name)
         
         try:
-            # Register the Arrow Dataset with DuckDB
-            self.connection.register(sql_name, dataset)
-            logger.debug(f"Registered table {sql_name} with DuckDB")
+            if self._use_pool:
+                # When using pooling with a shared database, we need to create a persistent table
+                # so it's visible to all connections in the pool
+                
+                # First register the dataset temporarily
+                temp_name = f"_temp_{sql_name}"
+                self.connection.register(temp_name, dataset)
+                
+                # Create a persistent table from the dataset
+                # Use CREATE OR REPLACE to handle re-registrations
+                self.connection.execute(f"CREATE OR REPLACE TABLE {sql_name} AS SELECT * FROM {temp_name}")
+                
+                # Unregister the temporary table
+                self.connection.unregister(temp_name)
+                
+                logger.debug(f"Created persistent table {sql_name} in shared database")
+            else:
+                # For non-pooled connections, just register the dataset directly
+                self.connection.register(sql_name, dataset)
+                logger.debug(f"Registered table {sql_name} with DuckDB")
+            
+            # Store registration info for re-registration if needed
+            if not hasattr(self, '_registered_tables'):
+                self._registered_tables = {}
+            self._registered_tables[sql_name] = (table_name, namespace, dataset)
+            
             return True
         except Exception as e:
             logger.error(f"Failed to register table {sql_name}: {e}")
@@ -170,6 +217,7 @@ class DeltaCATSQLGateway:
             
             # Execute query with pooled or direct connection
             if self._use_pool:
+                # Use a connection from the pool - tables are visible because we use a shared database file
                 with self._duckdb_pool.get_connection() as conn:
                     if parameters:
                         result = conn.execute(query, parameters)
@@ -207,12 +255,14 @@ class DeltaCATSQLGateway:
             self._ensure_tables_registered(query)
             
             if self._use_pool:
+                # Use pooled connection - tables are visible via shared database
                 with self._duckdb_pool.get_connection() as conn:
                     if parameters:
                         return conn.execute(query, parameters)
                     else:
                         return conn.execute(query)
             else:
+                # Use direct connection
                 if parameters:
                     return self.connection.execute(query, parameters)
                 else:
@@ -395,11 +445,24 @@ class DeltaCATSQLGateway:
     
     def close(self):
         """Close the DuckDB connection and clear caches."""
-        if self._use_pool:
-            # Pool connections are managed by the pool
-            pass
-        else:
+        if self.connection:
             self.connection.close()
+        
+        if self._use_pool and self._db_file:
+            # Clean up temporary database file
+            import os
+            try:
+                db_path = self._db_file
+                if os.path.exists(db_path):
+                    os.unlink(db_path)
+                    # Also remove WAL and SHM files if they exist
+                    for suffix in ['.wal', '.shm']:
+                        wal_path = db_path + suffix
+                        if os.path.exists(wal_path):
+                            os.unlink(wal_path)
+            except Exception as e:
+                logger.warning(f"Failed to clean up temporary database file: {e}")
+        
         self.catalog_adapter.clear_cache()
     
     def __enter__(self):

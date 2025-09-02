@@ -18,11 +18,31 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from opentelemetry.instrumentation.aws_lambda import AwsLambdaInstrumentor
-from opentelemetry.instrumentation.boto3sqs import Boto3SQSInstrumentor
-from opentelemetry.instrumentation.botocore import BotocoreInstrumentor
-from opentelemetry.instrumentation.redis import RedisInstrumentor
-from opentelemetry.instrumentation.requests import RequestsInstrumentor
+# Import instrumentation packages if available
+try:
+    from opentelemetry.instrumentation.aws_lambda import AwsLambdaInstrumentor
+except ImportError:
+    AwsLambdaInstrumentor = None
+
+try:
+    from opentelemetry.instrumentation.boto3sqs import Boto3SQSInstrumentor
+except ImportError:
+    Boto3SQSInstrumentor = None
+
+try:
+    from opentelemetry.instrumentation.botocore import BotocoreInstrumentor
+except ImportError:
+    BotocoreInstrumentor = None
+
+try:
+    from opentelemetry.instrumentation.redis import RedisInstrumentor
+except ImportError:
+    RedisInstrumentor = None
+
+try:
+    from opentelemetry.instrumentation.requests import RequestsInstrumentor
+except ImportError:
+    RequestsInstrumentor = None
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -208,14 +228,18 @@ def setup_opentelemetry(
     
     # Instrument libraries
     try:
-        BotocoreInstrumentor().instrument()
-        Boto3SQSInstrumentor().instrument()
-        RedisInstrumentor().instrument()
-        RequestsInstrumentor().instrument()
+        if BotocoreInstrumentor:
+            BotocoreInstrumentor().instrument()
+        if Boto3SQSInstrumentor:
+            Boto3SQSInstrumentor().instrument()
+        if RedisInstrumentor:
+            RedisInstrumentor().instrument()
+        if RequestsInstrumentor:
+            RequestsInstrumentor().instrument()
         
         # Instrument AWS Lambda if running in Lambda environment
         import os
-        if os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+        if os.environ.get("AWS_LAMBDA_FUNCTION_NAME") and AwsLambdaInstrumentor:
             AwsLambdaInstrumentor().instrument()
     except Exception as e:
         logger = StructuredLogger(__name__)
