@@ -493,6 +493,90 @@ def _get_s3_io_config(s3_client_kwargs) -> IOConfig:
     )
 
 
+def deltacat_table_to_daft_dataframe(
+    table_definition: TableDefinition,
+    io_config: Optional[IOConfig] = None,
+) -> DataFrame:
+    """
+    Convert a DeltaCAT TableDefinition to a Daft DataFrame.
+    
+    Args:
+        table_definition: The DeltaCAT TableDefinition to convert
+        io_config: Optional IOConfig for storage configuration (e.g., S3 credentials)
+    
+    Returns:
+        DataFrame: A Daft DataFrame representing the DeltaCAT table
+    
+    Raises:
+        RuntimeError: If the table definition is invalid or missing required components
+    """
+    if not table_definition:
+        raise RuntimeError("TableDefinition is required")
+    
+    if not table_definition.table_version:
+        raise RuntimeError(
+            f"TableVersion is missing for table "
+            f"{table_definition.table.namespace}.{table_definition.table.table_name}"
+        )
+    
+    # Initialize Ray if not already initialized
+    if not ray.is_initialized():
+        ray.init()
+    
+    # Set Daft to use Ray as the runner
+    daft.context.set_runner_ray(noop_if_initialized=True)
+    
+    # Create storage config
+    if io_config:
+        # Extract S3 config if present
+        if hasattr(io_config, 's3') and io_config.s3:
+            s3_config = io_config.s3
+            storage_config = StorageConfig.s3(
+                key_id=s3_config.key_id,
+                access_key=s3_config.access_key,
+                session_token=s3_config.session_token,
+                region_name=s3_config.region_name or AWS_REGION,
+                retry_mode=s3_config.retry_mode or "adaptive",
+                num_tries=s3_config.num_tries or BOTO_MAX_RETRIES,
+                max_connections=s3_config.max_connections or DAFT_MAX_S3_CONNECTIONS_PER_FILE,
+                connect_timeout_ms=s3_config.connect_timeout_ms or 5_000,
+                read_timeout_ms=s3_config.read_timeout_ms or 10_000,
+            )
+        else:
+            # Default to native storage
+            storage_config = StorageConfig.native(io_config)
+    else:
+        # Default storage config
+        storage_config = StorageConfig.native(
+            IOConfig(
+                s3=S3Config(
+                    region_name=AWS_REGION,
+                    retry_mode="adaptive",
+                    num_tries=BOTO_MAX_RETRIES,
+                    max_connections=DAFT_MAX_S3_CONNECTIONS_PER_FILE,
+                    connect_timeout_ms=5_000,
+                    read_timeout_ms=10_000,
+                )
+            )
+        )
+    
+    # Create a DeltaCatScanOperator
+    scan_operator = DeltaCatScanOperator(
+        table=table_definition,
+        storage_config=storage_config,
+    )
+    
+    # Create a Daft DataFrame from the scan operator
+    df = DataFrame.from_scan_operator(scan_operator)
+    
+    logger.info(
+        f"Created Daft DataFrame for table "
+        f"{table_definition.table.namespace}.{table_definition.table.table_name}"
+    )
+    
+    return df
+
+
 class DeltaCatScanOperator(ScanOperator):
     def __init__(self, table: TableDefinition, storage_config: StorageConfig) -> None:
         super().__init__()
