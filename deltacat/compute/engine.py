@@ -584,15 +584,17 @@ class UnifiedComputeEngine:
             result_df = daft.sql(query, catalog=registered_tables)
             result_table = result_df.to_arrow()
             
-            # Serialize for return
-            return pa.serialize(result_table).to_buffer().to_pybytes()
+            # Serialize for return using pickle
+            import pickle
+            return pickle.dumps(result_table)
         
         # Execute the query in a Ray task
         logger.info("Submitting SQL query to Ray for distributed execution")
         result_bytes = ray.get(execute_sql_with_daft.remote(query, self.catalog_name))
         
-        # Deserialize the result
-        result_table = pa.deserialize(result_bytes)
+        # Deserialize the result using pickle
+        import pickle
+        result_table = pickle.loads(result_bytes)
         
         logger.info(f"Ray query execution completed, returning {len(result_table)} rows")
         return result_table
