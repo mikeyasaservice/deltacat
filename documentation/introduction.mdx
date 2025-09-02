@@ -1,0 +1,99 @@
+---
+title: Introduction to DeltaCAT
+description: A portable, scalable, fast, and Pythonic Data Lakehouse for AI
+---
+
+# DeltaCAT 2.0
+
+DeltaCAT is a portable Pythonic Data Lakehouse powered by [Ray](https://github.com/ray-project/ray). Version 2.0 brings enterprise-grade orchestration, enhanced performance optimizations, and a unified interface for managing exabyte-scale data lakes with ACID compliance and multimodal support.
+
+## What is DeltaCAT?
+
+DeltaCAT combines the best of data lakes and data warehouses into a unified platform that scales from gigabytes to exabytes. It has been successfully deployed in production to [manage exabyte-scale enterprise data lakes at Amazon](https://aws.amazon.com/blogs/opensource/amazons-exabyte-scale-migration-from-apache-spark-to-ray-on-amazon-ec2/).
+
+## What's New in 2.0
+
+### Workflow Orchestration
+- **Transparent Temporal Integration** for managing long-running operations
+- **Automatic Retries** with configurable policies
+- **Background Processing** for queries, ingestion, and maintenance
+- **Scheduled Operations** for periodic table optimization
+
+### Performance Enhancements
+- **Arrow Optimizations** with predicate pushdown and column pruning
+- **Zero-Copy Operations** for efficient memory usage
+- **Memory-Mapped I/O** for faster data access
+- **Intelligent Query Routing** based on workload characteristics
+
+## Key Features
+
+### Unified Compute Engine
+DeltaCAT automatically routes queries to the optimal compute engine based on data size and query complexity:
+- **DuckDB** for analytical queries on small to medium datasets (<100GB)
+- **Daft** for large-scale distributed processing
+- **Ray** for ML workloads and Python UDF execution
+
+### Multi-Format Support
+Work seamlessly across different table formats:
+- **Apache Iceberg** with full read/write support and time travel
+- **Delta Lake** integration with read/write capabilities
+- **Parquet** for high-performance columnar storage
+
+### Enterprise Ready
+- **Unity Catalog Integration** for centralized governance
+- **Schema Evolution** without data rewriting
+- **Partition Pruning** for automatic query optimization
+- **ACID Transactions** for data consistency
+- **OAuth 2.0 Authentication** with PKCE support
+
+## Architecture
+
+DeltaCAT is built on five core components:
+
+<CardGroup cols={2}>
+  <Card title="Catalog" icon="folder-tree">
+    High-level APIs to create, discover, organize, share, and manage datasets
+  </Card>
+  <Card title="Orchestration" icon="workflow">
+    Workflow management for long-running operations and scheduled tasks
+  </Card>
+  <Card title="Compute" icon="microchip">
+    Distributed data management procedures to read, write, and optimize datasets
+  </Card>
+  <Card title="Storage" icon="database">
+    In-memory and on-disk multimodal dataset formats with efficient compression
+  </Card>
+  <Card title="Sync" icon="arrows-rotate">
+    Synchronize DeltaCAT datasets to data warehouses and other table formats
+  </Card>
+</CardGroup>
+
+## Why DeltaCAT?
+
+### Performance at Scale
+- Efficiently handle datasets from megabytes to exabytes
+- Leverage Ray's distributed computing for parallel processing
+- Automatic query optimization with partition pruning
+
+### Developer Friendly
+- Pure Python API with intuitive syntax
+- Seamless integration with popular data tools
+- Comprehensive documentation and examples
+
+### Production Proven
+- Battle-tested on exabyte-scale workloads at Amazon
+- Active development and community support
+- Enterprise-grade reliability and performance
+
+## Use Cases
+
+DeltaCAT excels in scenarios requiring:
+- **Large-scale ETL pipelines** with complex transformations
+- **Real-time analytics** on streaming and batch data
+- **Machine learning** feature stores and training datasets
+- **Data lake modernization** with ACID guarantees
+- **Multi-format data processing** across different storage systems
+
+## Getting Started
+
+Ready to build your data lakehouse? Check out our [Quickstart Guide](/quickstart) to get up and running in minutes, or dive into the [Core Concepts](/concepts/overview) to understand DeltaCAT's architecture in detail.

@@ -19,6 +19,60 @@ DeltaCAT provides four high-level components:
 
 ## Getting Started
 
-DeltaCAT is rapidly evolving. Usage instructions will be posted here soon!
+### Installation
 
-For now, feel free to peruse some of our [examples](https://github.com/ray-project/deltacat/tree/2.0/deltacat/examples/).
+```bash
+pip install deltacat
+```
+
+For Daft integration:
+```bash
+pip install deltacat daft
+```
+
+### Quick Start
+
+```python
+import deltacat
+import daft
+
+# Initialize DeltaCAT
+deltacat.init()
+
+# Create a catalog
+catalog = deltacat.Catalog()
+
+# Use with Daft for distributed DataFrame operations
+daft_catalog = deltacat.DaftCatalog(catalog, "my_catalog")
+daft.attach_catalog(daft_catalog, "my_catalog")
+
+# Create a table with Daft
+df = daft.from_pydict({"id": [1, 2, 3], "value": ["a", "b", "c"]})
+daft_catalog.create_table("my_table", df)
+
+# Query with unified compute engine
+from deltacat.compute.engine import create_engine
+
+engine = create_engine()
+result = engine.execute("SELECT * FROM my_table")  # Automatically uses optimal engine
+```
+
+For more examples, see our [examples directory](https://github.com/ray-project/deltacat/tree/2.0/deltacat/examples/).
+
+## Features
+
+### Unified Compute Engine
+DeltaCAT automatically routes queries to the optimal compute engine:
+- **DuckDB**: For small to medium queries (<100GB)
+- **Daft**: For large-scale distributed processing
+- **Ray**: For ML workloads and Python UDFs
+
+### Multi-Format Support
+- **Iceberg**: Full read/write support with time travel
+- **Delta Lake**: Native integration (coming soon)
+- **Parquet**: High-performance columnar storage
+
+### Enterprise Ready
+- **Unity Catalog**: First-class integration for governance
+- **Schema Evolution**: Add, drop, rename columns without rewriting data
+- **Partition Pruning**: Automatic query optimization

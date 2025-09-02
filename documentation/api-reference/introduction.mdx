@@ -1,0 +1,249 @@
+---
+title: API Reference
+description: Complete API documentation for DeltaCAT
+---
+
+# API Reference
+
+Complete reference documentation for all DeltaCAT modules and functions.
+
+## Core Modules
+
+<CardGroup cols={2}>
+  <Card title="Catalog API" icon="folder-tree" href="/api-reference/catalog/init">
+    Table and namespace management APIs
+  </Card>
+  <Card title="Compute API" icon="microchip" href="/api-reference/compute/engine">
+    Query execution and optimization APIs
+  </Card>
+  <Card title="Storage API" icon="database" href="/api-reference/storage/formats">
+    Storage format and I/O APIs
+  </Card>
+  <Card title="Utils API" icon="wrench" href="/api-reference/utils">
+    Utility functions and helpers
+  </Card>
+</CardGroup>
+
+## Quick Reference
+
+### Initialization
+
+```python
+import deltacat
+
+# Basic initialization
+deltacat.init()
+
+# With custom configuration
+deltacat.init(
+    catalog_properties={
+        "catalog_type": "unity",
+        "warehouse_path": "s3://bucket/warehouse"
+    }
+)
+```
+
+### Catalog Operations
+
+```python
+from deltacat import catalog
+
+# Namespace operations
+catalog.create_namespace("my_db")
+catalog.list_namespaces()
+
+# Table operations
+catalog.create_table("my_db", "my_table", schema)
+catalog.read_table("my_db", "my_table")
+catalog.write_to_table("my_db", "my_table", data)
+```
+
+### Compute Operations
+
+```python
+from deltacat.compute.engine import create_engine
+
+# Create unified engine
+engine = create_engine()
+
+# Execute queries
+result = engine.execute("SELECT * FROM table")
+
+# Specify engine explicitly
+result = engine.execute(
+    "SELECT * FROM large_table",
+    engine="daft"
+)
+```
+
+### Storage Operations
+
+```python
+from deltacat.storage.formats import UnifiedTableInterface
+
+# Create table interface
+table = UnifiedTableInterface("s3://bucket/table")
+
+# Read/write operations
+df = table.read(columns=["id", "name"])
+table.write(df, mode="append")
+
+# Get metadata
+metadata = table.get_metadata()
+```
+
+## Module Structure
+
+```
+deltacat/
+├── catalog/           # Catalog and metadata management
+│   ├── delegate.py   # High-level catalog operations
+│   ├── model/        # Data models
+│   └── unity/        # Unity Catalog integration
+├── compute/          # Query execution engines
+│   ├── engine.py     # Unified compute engine
+│   ├── daft/         # Daft integration
+│   └── duckdb/       # DuckDB integration
+├── storage/          # Storage formats and I/O
+│   ├── formats/      # Table format abstractions
+│   ├── model/        # Storage data models
+│   └── io/           # I/O utilities
+├── utils/            # Utility functions
+│   ├── daft.py       # Daft helpers
+│   ├── placement.py  # Data placement utilities
+│   └── ray/          # Ray utilities
+└── types/            # Type definitions
+```
+
+## Common Patterns
+
+### Error Handling
+
+```python
+from deltacat.exceptions import TableNotFoundError, CatalogError
+
+try:
+    table = catalog.get_table("db", "table")
+except TableNotFoundError:
+    print("Table not found")
+except CatalogError as e:
+    print(f"Catalog error: {e}")
+```
+
+### Context Managers
+
+```python
+from deltacat import catalog
+
+# Automatic resource cleanup
+with catalog.session() as session:
+    session.create_table("db", "table", schema)
+    session.write_data(data)
+    # Commits on exit, rolls back on error
+```
+
+### Async Operations
+
+```python
+import asyncio
+from deltacat.async_api import AsyncCatalog
+
+async def main():
+    catalog = AsyncCatalog()
+    
+    # Concurrent operations
+    tasks = [
+        catalog.read_table("db", "table1"),
+        catalog.read_table("db", "table2"),
+        catalog.read_table("db", "table3")
+    ]
+    
+    results = await asyncio.gather(*tasks)
+```
+
+## Type Annotations
+
+DeltaCAT uses comprehensive type hints:
+
+```python
+from typing import Optional, List, Dict, Any
+from deltacat.types import TableDefinition, Schema
+
+def create_table(
+    namespace: str,
+    table: str,
+    schema: Schema,
+    properties: Optional[Dict[str, Any]] = None,
+    partition_by: Optional[List[str]] = None
+) -> TableDefinition:
+    ...
+```
+
+## Configuration
+
+### Environment Variables
+
+```python
+import os
+
+# Catalog configuration
+os.environ["DELTACAT_CATALOG_TYPE"] = "unity"
+os.environ["DELTACAT_WAREHOUSE_PATH"] = "s3://bucket/warehouse"
+
+# Compute configuration
+os.environ["DELTACAT_DEFAULT_ENGINE"] = "daft"
+os.environ["DELTACAT_ENGINE_MEMORY_LIMIT"] = "32GB"
+
+# Storage configuration
+os.environ["DELTACAT_DEFAULT_FORMAT"] = "iceberg"
+os.environ["DELTACAT_COMPRESSION"] = "snappy"
+```
+
+### Programmatic Configuration
+
+```python
+from deltacat.config import Config
+
+config = Config(
+    catalog_type="unity",
+    default_engine="daft",
+    storage_options={
+        "default_format": "iceberg",
+        "compression": "snappy"
+    }
+)
+
+deltacat.init(config=config)
+```
+
+## Performance Tips
+
+1. **Use column selection** to reduce data transfer:
+   ```python
+   df = table.read(columns=["id", "name"])
+   ```
+
+2. **Enable partition pruning** for large tables:
+   ```python
+   df = table.read(filter="date >= '2024-01-01'")
+   ```
+
+3. **Batch operations** for better throughput:
+   ```python
+   with catalog.batch_writer("db", "table") as writer:
+       for batch in data_batches:
+           writer.write(batch)
+   ```
+
+## Version Compatibility
+
+| DeltaCAT Version | Python | Ray | Daft | PyArrow |
+|-----------------|--------|-----|------|---------|
+| 2.0.x | 3.9+ | 2.46.0 | 0.5.22 | 19.0.1+ |
+| 1.0.x | 3.8+ | 2.20.0 | 0.3.0 | 14.0.0+ |
+
+## Getting Help
+
+- [GitHub Issues](https://github.com/ray-project/deltacat/issues)
+- [Slack Community](https://ray-distributed.slack.com)
+- [Examples](https://github.com/ray-project/deltacat/tree/main/examples)

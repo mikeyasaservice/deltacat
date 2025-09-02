@@ -21,6 +21,9 @@ def spark():
     os.environ["AWS_ACCESS_KEY_ID"] = "admin"
     os.environ["AWS_SECRET_ACCESS_KEY"] = "password"
 
+    import tempfile
+    warehouse_dir = tempfile.mkdtemp(prefix="spark_warehouse_")
+    
     spark = (
         SparkSession.builder.appName("PyIceberg integration test")
         .config("spark.sql.session.timeZone", "UTC")
@@ -29,30 +32,14 @@ def spark():
             "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
         )
         .config(
-            "spark.sql.catalog.integration", "org.apache.iceberg.spark.SparkCatalog"
+            "spark.sql.catalog.local", "org.apache.iceberg.spark.SparkCatalog"
         )
-        .config(
-            "spark.sql.catalog.integration.catalog-impl",
-            "org.apache.iceberg.rest.RESTCatalog",
-        )
-        .config("spark.sql.catalog.integration.cache-enabled", "false")
-        .config("spark.sql.catalog.integration.uri", "http://localhost:8181")
-        .config(
-            "spark.sql.catalog.integration.io-impl",
-            "org.apache.iceberg.aws.s3.S3FileIO",
-        )
-        .config("spark.sql.catalog.integration.warehouse", "s3://warehouse/wh/")
-        .config("spark.sql.catalog.integration.s3.endpoint", "http://localhost:9000")
-        .config("spark.sql.catalog.integration.s3.path-style-access", "true")
-        .config("spark.sql.defaultCatalog", "integration")
-        .config("spark.sql.catalog.hive", "org.apache.iceberg.spark.SparkCatalog")
-        .config("spark.sql.catalog.hive.type", "hive")
-        .config("spark.sql.catalog.hive.uri", "http://localhost:9083")
-        .config("spark.sql.catalog.hive.io-impl", "org.apache.iceberg.aws.s3.S3FileIO")
-        .config("spark.sql.catalog.hive.warehouse", "s3://warehouse/hive/")
-        .config("spark.sql.catalog.hive.s3.endpoint", "http://localhost:9000")
-        .config("spark.sql.catalog.hive.s3.path-style-access", "true")
+        .config("spark.sql.catalog.local.type", "hadoop")
+        .config("spark.sql.catalog.local.warehouse", warehouse_dir)
+        .config("spark.sql.defaultCatalog", "local")
         .config("spark.sql.execution.arrow.pyspark.enabled", "true")
+        .config("spark.master", "local[2]")
+        .config("spark.driver.memory", "2g")
         .getOrCreate()
     )
 
@@ -61,20 +48,32 @@ def spark():
 
 @pytest.fixture(scope="session")
 def session_catalog() -> Catalog:
+    # Use in-memory catalog instead of REST to avoid connection errors
+    import tempfile
+    warehouse_path = tempfile.mkdtemp(prefix="iceberg_warehouse_")
     return load_catalog(
         "local",
         **{
-            "type": "rest",
-            "uri": "http://localhost:8181",
-            "s3.endpoint": "http://localhost:9000",
-            "s3.access-key-id": "admin",
-            "s3.secret-access-key": "password",
+            "type": "sql",
+            "uri": f"sqlite:///{warehouse_path}/catalog.db",
+            "warehouse": warehouse_path,
         },
     )
 
 
 @pytest.fixture(autouse=True, scope="module")
 def setup_ray_cluster():
-    ray.init(local_mode=True, ignore_reinit_error=True)
+    # Initialize Ray without local_mode to support async actors
+    import logging
+    logging.getLogger("ray").setLevel(logging.ERROR)
+    
+    if not ray.is_initialized():
+        ray.init(
+            ignore_reinit_error=True,
+            num_cpus=2,
+            _temp_dir="/tmp/ray",
+            logging_level=logging.ERROR
+        )
     yield
-    ray.shutdown()
+    if ray.is_initialized():
+        ray.shutdown()

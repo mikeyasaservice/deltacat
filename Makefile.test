@@ -1,0 +1,41 @@
+# Makefile for running DeltaCAT tests
+
+.PHONY: test test-fast test-all test-unit test-integration clean-test
+
+# Run all tests with proper resource management
+test-all:
+	@echo "Running all tests with resource management..."
+	@python run_all_tests.py
+
+# Fast test run (unit tests only)
+test-fast:
+	@echo "Running fast unit tests only..."
+	@python -m pytest deltacat/tests/ -v -m "not integration" -k "not (daft or ray)" --timeout=30
+
+# Unit tests only
+test-unit:
+	@echo "Running unit tests..."
+	@python -m pytest deltacat/tests/storage/model/ deltacat/tests/types/ deltacat/tests/utils/ -v
+
+# Integration tests only  
+test-integration:
+	@echo "Running integration tests..."
+	@python -m pytest deltacat/tests/ -v -m "integration" --timeout=120
+
+# Run tests with coverage
+test-coverage:
+	@echo "Running tests with coverage..."
+	@python -m pytest deltacat/tests/ --cov=deltacat --cov-report=html --cov-report=term -v
+
+# Clean test artifacts
+clean-test:
+	@echo "Cleaning test artifacts..."
+	@find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+	@find . -type d -name ".pytest_cache" -exec rm -rf {} + 2>/dev/null || true
+	@find . -type f -name "*.pyc" -delete
+	@rm -rf htmlcov/
+	@rm -f .coverage
+
+# Pre-push validation
+pre-push: clean-test test-all
+	@echo "✅ All tests passed - ready to push!"

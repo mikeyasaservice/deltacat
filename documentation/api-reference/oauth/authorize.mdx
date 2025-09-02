@@ -1,0 +1,204 @@
+---
+title: Authorize
+description: OAuth 2.0 authorization endpoint
+api: GET /oauth/authorize
+---
+
+# Authorization Endpoint
+
+Initiates the OAuth 2.0 authorization code flow. This endpoint authenticates the user and obtains their consent to grant access to the client application.
+
+## Request
+
+<ParamField query="response_type" type="string" required>
+  Must be `code` for authorization code flow
+</ParamField>
+
+<ParamField query="client_id" type="string" required>
+  The client identifier issued during registration
+</ParamField>
+
+<ParamField query="redirect_uri" type="string" required>
+  The callback URL where the user will be redirected after authorization. Must match one of the registered redirect URIs exactly.
+</ParamField>
+
+<ParamField query="scope" type="string">
+  Space-delimited list of requested scopes. Available scopes:
+  - `catalog:read` - Read access to catalogs and tables
+  - `catalog:write` - Write access to catalogs and tables
+  - `admin` - Administrative operations
+</ParamField>
+
+<ParamField query="state" type="string" recommended>
+  An opaque value used to maintain state between the request and callback. This value will be included when redirecting back to the client.
+</ParamField>
+
+<ParamField query="code_challenge" type="string" recommended>
+  PKCE code challenge. Required when `REQUIRE_PKCE=true` in configuration.
+</ParamField>
+
+<ParamField query="code_challenge_method" type="string">
+  PKCE challenge method. Must be `S256` (SHA256) or `plain`. Defaults to `plain` if not specified.
+</ParamField>
+
+<ParamField query="nonce" type="string">
+  OpenID Connect nonce value for replay attack protection
+</ParamField>
+
+## Response
+
+### Success Response
+
+Redirects to the provided `redirect_uri` with:
+
+```
+HTTP/1.1 302 Found
+Location: https://client.example.com/callback?
+  code=SplxlOBeZQQYbYS6WxSbIA&
+  state=xyz
+```
+
+<ResponseField name="code" type="string">
+  The authorization code that can be exchanged for tokens. Valid for 10 minutes.
+</ResponseField>
+
+<ResponseField name="state" type="string">
+  The state value provided in the request, if any
+</ResponseField>
+
+### Error Response
+
+Redirects to the provided `redirect_uri` with error parameters:
+
+```
+HTTP/1.1 302 Found
+Location: https://client.example.com/callback?
+  error=invalid_request&
+  error_description=Invalid+redirect+URI&
+  state=xyz
+```
+
+<ResponseField name="error" type="string">
+  Error code indicating the type of error:
+  - `invalid_request` - Invalid or missing parameters
+  - `unauthorized_client` - Client not authorized
+  - `access_denied` - User denied access
+  - `unsupported_response_type` - Response type not supported
+  - `invalid_scope` - Invalid scope requested
+  - `server_error` - Internal server error
+</ResponseField>
+
+<ResponseField name="error_description" type="string">
+  Human-readable description of the error
+</ResponseField>
+
+## Examples
+
+### Basic Authorization Request
+
+<CodeGroup>
+```bash cURL
+curl -X GET "https://api.deltacat.io/oauth/authorize?\
+response_type=code&\
+client_id=my-app&\
+redirect_uri=https://myapp.com/callback&\
+scope=catalog:read catalog:write&\
+state=abc123"
+```
+
+```javascript JavaScript
+const params = new URLSearchParams({
+  response_type: 'code',
+  client_id: 'my-app',
+  redirect_uri: 'https://myapp.com/callback',
+  scope: 'catalog:read catalog:write',
+  state: 'abc123'
+});
+
+window.location.href = `https://api.deltacat.io/oauth/authorize?${params}`;
+```
+
+```python Python
+import urllib.parse
+
+params = {
+    'response_type': 'code',
+    'client_id': 'my-app',
+    'redirect_uri': 'https://myapp.com/callback',
+    'scope': 'catalog:read catalog:write',
+    'state': 'abc123'
+}
+
+auth_url = f"https://api.deltacat.io/oauth/authorize?{urllib.parse.urlencode(params)}"
+# Redirect user to auth_url
+```
+</CodeGroup>
+
+### With PKCE (Recommended)
+
+<CodeGroup>
+```javascript JavaScript
+import crypto from 'crypto';
+
+// Generate PKCE values
+const verifier = crypto.randomBytes(32).toString('base64url');
+const challenge = crypto
+  .createHash('sha256')
+  .update(verifier)
+  .digest('base64url');
+
+// Store verifier for later use
+sessionStorage.setItem('code_verifier', verifier);
+
+const params = new URLSearchParams({
+  response_type: 'code',
+  client_id: 'my-app',
+  redirect_uri: 'https://myapp.com/callback',
+  scope: 'catalog:read catalog:write',
+  state: 'abc123',
+  code_challenge: challenge,
+  code_challenge_method: 'S256'
+});
+
+window.location.href = `https://api.deltacat.io/oauth/authorize?${params}`;
+```
+
+```python Python
+import hashlib
+import base64
+import os
+import urllib.parse
+
+# Generate PKCE values
+verifier = base64.urlsafe_b64encode(os.urandom(32)).decode('utf-8').rstrip('=')
+challenge = base64.urlsafe_b64encode(
+    hashlib.sha256(verifier.encode('utf-8')).digest()
+).decode('utf-8').rstrip('=')
+
+# Store verifier for token exchange
+session['code_verifier'] = verifier
+
+params = {
+    'response_type': 'code',
+    'client_id': 'my-app',
+    'redirect_uri': 'https://myapp.com/callback',
+    'scope': 'catalog:read catalog:write',
+    'state': 'abc123',
+    'code_challenge': challenge,
+    'code_challenge_method': 'S256'
+}
+
+auth_url = f"https://api.deltacat.io/oauth/authorize?{urllib.parse.urlencode(params)}"
+```
+</CodeGroup>
+
+## Security Considerations
+
+<Warning>
+  Always use PKCE for public clients (SPAs, mobile apps) to prevent authorization code interception attacks.
+</Warning>
+
+1. **State Parameter**: Always include a state parameter to prevent CSRF attacks
+2. **PKCE**: Use PKCE for all public clients and recommended for confidential clients
+3. **Redirect URI**: Must exactly match a pre-registered URI
+4. **HTTPS Required**: This endpoint requires HTTPS in production

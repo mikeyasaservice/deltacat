@@ -1,0 +1,289 @@
+---
+title: Installation
+description: Detailed installation instructions for DeltaCAT
+---
+
+# Installation
+
+This guide covers the installation and configuration of DeltaCAT for different use cases and environments.
+
+## Requirements
+
+- Python 3.9 or higher
+- pip package manager
+- Optional: Ray cluster for distributed processing
+
+## Basic Installation
+
+Install the core DeltaCAT package:
+
+```bash
+pip install deltacat
+```
+
+## Installation with Extras
+
+DeltaCAT provides several optional extras for specific functionality:
+
+### Daft Integration
+
+For distributed DataFrame operations with Daft:
+
+```bash
+pip install deltacat daft
+```
+
+### Iceberg Support
+
+For Apache Iceberg table format support:
+
+```bash
+pip install "deltacat[iceberg]"
+```
+
+### S3 Support
+
+For Amazon S3 storage integration:
+
+```bash
+pip install "deltacat[s3fs]"
+```
+
+### Apache Beam Integration
+
+For Apache Beam pipeline support:
+
+```bash
+pip install "deltacat[beam]"
+```
+
+### Complete Installation
+
+Install all optional dependencies:
+
+```bash
+pip install "deltacat[iceberg,s3fs,beam]" daft
+```
+
+## Development Installation
+
+For contributors and developers:
+
+```bash
+# Clone the repository
+git clone https://github.com/ray-project/deltacat.git
+cd deltacat
+
+# Create a virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install in development mode
+pip install -e .
+
+# Install development dependencies
+pip install -r requirements-dev.txt
+```
+
+## Configuration
+
+### Environment Variables
+
+Configure DeltaCAT behavior using environment variables:
+
+```bash
+# Ray configuration
+export RAY_ADDRESS="ray://localhost:10001"  # Connect to existing Ray cluster
+export RAY_NUM_CPUS=8  # Limit CPU usage
+
+# Storage configuration
+export DELTACAT_STORAGE_ROOT="s3://my-bucket/deltacat"
+export AWS_REGION="us-west-2"
+
+# Catalog configuration
+export DELTACAT_CATALOG_TYPE="unity"
+export UNITY_CATALOG_SERVER="https://unity.example.com"
+```
+
+### Python Configuration
+
+Configure DeltaCAT programmatically:
+
+```python
+import deltacat
+from deltacat.catalog import CatalogProperties
+
+# Initialize with custom configuration
+catalog_props = CatalogProperties(
+    catalog_type="unity",
+    catalog_uri="https://unity.example.com",
+    warehouse_path="s3://my-bucket/warehouse"
+)
+
+deltacat.init(catalog_properties=catalog_props)
+```
+
+## Cloud Provider Setup
+
+### AWS S3
+
+```python
+import os
+import deltacat
+
+# Configure AWS credentials
+os.environ["AWS_ACCESS_KEY_ID"] = "your-access-key"
+os.environ["AWS_SECRET_ACCESS_KEY"] = "your-secret-key"
+os.environ["AWS_REGION"] = "us-west-2"
+
+# Initialize with S3 storage
+deltacat.init(
+    storage_root="s3://your-bucket/deltacat",
+    catalog_properties={
+        "warehouse_path": "s3://your-bucket/warehouse"
+    }
+)
+```
+
+### Google Cloud Storage
+
+```python
+import os
+import deltacat
+
+# Configure GCS credentials
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/path/to/credentials.json"
+
+# Initialize with GCS storage
+deltacat.init(
+    storage_root="gs://your-bucket/deltacat",
+    catalog_properties={
+        "warehouse_path": "gs://your-bucket/warehouse"
+    }
+)
+```
+
+### Azure Blob Storage
+
+```python
+import os
+import deltacat
+
+# Configure Azure credentials
+os.environ["AZURE_STORAGE_CONNECTION_STRING"] = "your-connection-string"
+
+# Initialize with Azure storage
+deltacat.init(
+    storage_root="az://your-container/deltacat",
+    catalog_properties={
+        "warehouse_path": "az://your-container/warehouse"
+    }
+)
+```
+
+## Ray Cluster Setup
+
+### Local Ray Cluster
+
+```python
+import ray
+import deltacat
+
+# Start local Ray cluster
+ray.init(num_cpus=8, num_gpus=0)
+
+# Initialize DeltaCAT with Ray
+deltacat.init(use_ray=True)
+```
+
+### Connect to Existing Cluster
+
+```python
+import ray
+import deltacat
+
+# Connect to existing Ray cluster
+ray.init(address="ray://head-node:10001")
+
+# Initialize DeltaCAT
+deltacat.init(use_ray=True)
+```
+
+## Verification
+
+Verify your installation:
+
+```python
+import deltacat
+
+# Check version
+print(f"DeltaCAT version: {deltacat.__version__}")
+
+# Initialize and test
+deltacat.init()
+catalog = deltacat.Catalog()
+
+# Create test namespace
+catalog.create_namespace("test")
+
+# List namespaces
+namespaces = catalog.list_namespaces()
+print(f"Available namespaces: {namespaces}")
+
+print("Installation successful!")
+```
+
+## Troubleshooting
+
+### Common Issues
+
+<AccordionGroup>
+  <Accordion title="ImportError: No module named 'deltacat'">
+    Ensure DeltaCAT is installed in your active Python environment:
+    ```bash
+    pip show deltacat
+    ```
+    If not installed, run:
+    ```bash
+    pip install deltacat
+    ```
+  </Accordion>
+  
+  <Accordion title="Ray initialization failed">
+    Check if Ray is properly installed:
+    ```bash
+    pip install ray[default]
+    ```
+    Verify Ray cluster status:
+    ```bash
+    ray status
+    ```
+  </Accordion>
+  
+  <Accordion title="S3 access denied">
+    Verify AWS credentials:
+    ```bash
+    aws s3 ls s3://your-bucket/
+    ```
+    Ensure IAM permissions include s3:GetObject, s3:PutObject, s3:ListBucket
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+Now that you have DeltaCAT installed, explore:
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Start using DeltaCAT in 5 minutes
+  </Card>
+  <Card title="Core Concepts" icon="lightbulb" href="/concepts/overview">
+    Understand the architecture
+  </Card>
+  <Card title="Configuration" icon="gear" href="/guides/configuration">
+    Advanced configuration options
+  </Card>
+  <Card title="Examples" icon="code" href="/examples">
+    Browse example notebooks
+  </Card>
+</CardGroup>

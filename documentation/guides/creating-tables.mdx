@@ -1,0 +1,383 @@
+---
+title: Creating Tables
+description: Guide to creating and managing tables in DeltaCAT
+---
+
+# Creating Tables
+
+This guide covers everything you need to know about creating tables in DeltaCAT, from basic table creation to advanced partitioning and optimization strategies.
+
+## Basic Table Creation
+
+### From DataFrame
+
+```python
+import pandas as pd
+from deltacat import catalog
+
+# Create a DataFrame
+df = pd.DataFrame({
+    "id": [1, 2, 3],
+    "name": ["Alice", "Bob", "Charlie"],
+    "age": [25, 30, 35]
+})
+
+# Create namespace if it doesn't exist
+catalog.create_namespace("my_database")
+
+# Create table from DataFrame
+catalog.create_table(
+    namespace="my_database",
+    table="users",
+    data=df
+)
+```
+
+### With Explicit Schema
+
+```python
+import pyarrow as pa
+from deltacat import catalog
+
+# Define schema
+schema = pa.schema([
+    ("id", pa.int64()),
+    ("name", pa.string()),
+    ("age", pa.int32()),
+    ("email", pa.string()),
+    ("created_at", pa.timestamp('us'))
+])
+
+# Create empty table with schema
+catalog.create_table(
+    namespace="my_database",
+    table="users",
+    schema=schema
+)
+```
+
+### Using Daft
+
+```python
+import daft
+from deltacat import DaftCatalog
+
+# Create DaftCatalog
+daft_catalog = DaftCatalog(catalog, "my_catalog")
+
+# Create Daft DataFrame
+df = daft.from_pydict({
+    "id": [1, 2, 3],
+    "name": ["Alice", "Bob", "Charlie"],
+    "score": [95.5, 87.3, 92.1]
+})
+
+# Create table
+daft_catalog.create_table("students", df)
+```
+
+## Partitioned Tables
+
+### Basic Partitioning
+
+```python
+# Create partitioned table
+catalog.create_table(
+    namespace="my_database",
+    table="events",
+    data=df,
+    partition_by=["year", "month", "day"]
+)
+```
+
+### Hidden Partitioning (Iceberg)
+
+```python
+from deltacat.storage.formats import get_table_format
+
+# Create Iceberg table with hidden partitions
+iceberg = get_table_format("iceberg", "s3://bucket/events")
+
+iceberg.create_table(
+    schema=schema,
+    partition_spec=[
+        ("year", "year(timestamp)"),
+        ("month", "month(timestamp)"),
+        ("day", "day(timestamp)"),
+        ("hour", "hour(timestamp)")
+    ]
+)
+```
+
+### Dynamic Partitioning
+
+```python
+# Partition based on data characteristics
+def create_optimized_table(df, table_name):
+    # Analyze data distribution
+    cardinality = df["category"].nunique()
+    
+    if cardinality < 10:
+        partition_cols = ["category", "date"]
+    elif cardinality < 100:
+        partition_cols = ["date"]
+    else:
+        partition_cols = []  # No partitioning for high cardinality
+    
+    catalog.create_table(
+        namespace="optimized",
+        table=table_name,
+        data=df,
+        partition_by=partition_cols
+    )
+```
+
+## Table Properties
+
+### Setting Properties
+
+```python
+# Create table with custom properties
+catalog.create_table(
+    namespace="my_database",
+    table="metrics",
+    data=df,
+    properties={
+        "compression": "snappy",
+        "target_file_size": "512MB",
+        "write.format.default": "parquet",
+        "read.split.target-size": "134217728",
+        "retention_days": "90"
+    }
+)
+```
+
+### Format-Specific Properties
+
+```python
+# Iceberg-specific properties
+catalog.create_table(
+    namespace="iceberg_db",
+    table="transactions",
+    data=df,
+    format="iceberg",
+    properties={
+        "write.metadata.compression-codec": "gzip",
+        "write.data.compression-codec": "snappy",
+        "write.distribution-mode": "hash",
+        "commit.retry.num-retries": "4"
+    }
+)
+
+# Parquet-specific properties
+catalog.create_table(
+    namespace="parquet_db",
+    table="logs",
+    data=df,
+    format="parquet",
+    properties={
+        "parquet.compression": "snappy",
+        "parquet.page-size": "1048576",
+        "parquet.block-size": "134217728"
+    }
+)
+```
+
+## Advanced Creation Patterns
+
+### Create Table As Select (CTAS)
+
+```python
+from deltacat.compute.engine import create_engine
+
+engine = create_engine()
+
+# Create table from query
+engine.execute("""
+    CREATE TABLE my_database.summary AS
+    SELECT 
+        category,
+        COUNT(*) as count,
+        AVG(amount) as avg_amount,
+        MAX(amount) as max_amount
+    FROM my_database.transactions
+    GROUP BY category
+""")
+```
+
+### External Tables
+
+```python
+# Create external table pointing to existing data
+catalog.create_external_table(
+    namespace="external",
+    table="s3_data",
+    location="s3://bucket/existing-data/",
+    format="parquet",
+    schema=schema
+)
+```
+
+### Temporary Tables
+
+```python
+# Create temporary table for session
+with catalog.session() as session:
+    session.create_temp_table(
+        "temp_analysis",
+        data=df
+    )
+    
+    # Use temporary table
+    result = session.query("""
+        SELECT * FROM temp_analysis
+        WHERE score > 90
+    """)
+    # Table is automatically dropped when session ends
+```
+
+## Schema Definition
+
+### Complex Types
+
+```python
+import pyarrow as pa
+
+# Define schema with complex types
+complex_schema = pa.schema([
+    ("id", pa.int64()),
+    ("user", pa.struct([
+        ("name", pa.string()),
+        ("email", pa.string()),
+        ("age", pa.int32())
+    ])),
+    ("tags", pa.list_(pa.string())),
+    ("metadata", pa.map_(pa.string(), pa.string())),
+    ("scores", pa.list_(pa.float64()))
+])
+
+catalog.create_table(
+    namespace="complex_db",
+    table="nested_data",
+    schema=complex_schema
+)
+```
+
+### Schema Evolution Support
+
+```python
+# Create table with evolution-friendly schema
+catalog.create_table(
+    namespace="evolving_db",
+    table="flexible_schema",
+    schema=initial_schema,
+    properties={
+        "schema.evolution.enabled": "true",
+        "schema.evolution.mode": "additive"
+    }
+)
+```
+
+## Performance Optimization
+
+### Pre-sorted Tables
+
+```python
+# Sort data before creating table for better compression
+df_sorted = df.sort_values(["date", "user_id"])
+
+catalog.create_table(
+    namespace="optimized",
+    table="sorted_events",
+    data=df_sorted,
+    properties={
+        "write.sorting.columns": "date,user_id"
+    }
+)
+```
+
+### Bucketed Tables
+
+```python
+# Create bucketed table for join optimization
+catalog.create_table(
+    namespace="bucketed",
+    table="user_profiles",
+    data=df,
+    bucket_by=["user_id"],
+    num_buckets=50
+)
+```
+
+## Validation and Constraints
+
+### Data Validation
+
+```python
+def create_validated_table(df, namespace, table):
+    # Validate data before creation
+    assert df["age"].min() >= 0, "Age cannot be negative"
+    assert df["email"].str.contains("@").all(), "Invalid email format"
+    
+    # Create table with validation properties
+    catalog.create_table(
+        namespace=namespace,
+        table=table,
+        data=df,
+        properties={
+            "validation.enabled": "true",
+            "validation.rules": json.dumps({
+                "age": {"min": 0, "max": 150},
+                "email": {"pattern": "^[^@]+@[^@]+$"}
+            })
+        }
+    )
+```
+
+## Best Practices
+
+1. **Choose the right format**: Use Iceberg for analytical workloads, Parquet for simple storage
+2. **Partition wisely**: Avoid over-partitioning; aim for partition sizes between 100MB-1GB
+3. **Set appropriate file sizes**: Target 128-512MB per file for optimal performance
+4. **Use compression**: Enable Snappy or ZSTD compression for better storage efficiency
+5. **Define schemas explicitly**: Avoid schema inference for production tables
+
+## Error Handling
+
+```python
+from deltacat.exceptions import TableExistsError, InvalidSchemaError
+
+try:
+    catalog.create_table(
+        namespace="my_db",
+        table="users",
+        data=df
+    )
+except TableExistsError:
+    print("Table already exists, using CREATE OR REPLACE")
+    catalog.create_table(
+        namespace="my_db",
+        table="users",
+        data=df,
+        mode="replace"
+    )
+except InvalidSchemaError as e:
+    print(f"Schema validation failed: {e}")
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Querying Data" icon="search" href="/guides/querying-data">
+    Learn how to query your tables
+  </Card>
+  <Card title="Table Operations" icon="wrench" href="/guides/table-operations">
+    Manage and optimize tables
+  </Card>
+  <Card title="Schema Evolution" icon="code-branch" href="/guides/schema-evolution">
+    Evolve table schemas safely
+  </Card>
+  <Card title="Partition Pruning" icon="filter" href="/guides/partition-pruning">
+    Optimize query performance
+  </Card>
+</CardGroup>

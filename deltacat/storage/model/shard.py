@@ -1,9 +1,10 @@
 from abc import abstractmethod
-from typing import Iterable, Optional, Protocol, TypeVar, Union
+from typing import TYPE_CHECKING, Iterable, Optional, Protocol, TypeVar, Union
 
-from deltacat.experimental.storage.rivulet.reader.dataset_metastore import (
-    DatasetMetastore,
-)
+if TYPE_CHECKING:
+    from deltacat.experimental.storage.rivulet.reader.dataset_metastore import (
+        DatasetMetastore,
+    )
 
 # TODO: Add type validation in dataset/schema classes
 T = TypeVar("T", bound=Union[int, str])
@@ -45,7 +46,7 @@ class ShardingStrategy(Protocol):
             raise ValueError(f"Unsupported sharding strategy type: {strategy}")
 
     @abstractmethod
-    def shards(self, num_shards: int, metastore: DatasetMetastore) -> Iterable[Shard]:
+    def shards(self, num_shards: int, metastore: "DatasetMetastore") -> Iterable[Shard]:
         """
         Generate the shards based on the chosen strategy.
         """

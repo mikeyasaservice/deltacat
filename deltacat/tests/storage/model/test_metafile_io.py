@@ -1,5 +1,6 @@
 import os
 from typing import List, Tuple
+from unittest.mock import patch
 
 import time
 import multiprocessing
@@ -193,34 +194,34 @@ class TestMetafileIO:
         with pytest.raises(RuntimeError):
             reread_transaction.commit(temp_dir)
 
-    def test_txn_bad_end_time_fails(self, temp_dir, mocker):
+    def test_txn_bad_end_time_fails(self, temp_dir):
         commit_results = _commit_single_delta_table(temp_dir)
         for expected, actual, _ in commit_results:
             assert expected.equivalent_to(actual)
         # given a transaction with an ending timestamp set in the past
         past_timestamp = time.time_ns() - NANOS_PER_SEC
-        mocker.patch(
+        with patch(
             "deltacat.storage.model.transaction.Transaction._parse_end_time",
-            return_value=past_timestamp,
-        )
-        original_delta: Delta = commit_results[5][1]
-        new_delta = Delta.update_for(original_delta)
-        txn_operations = [
-            TransactionOperation.of(
-                operation_type=TransactionOperationType.UPDATE,
-                dest_metafile=new_delta,
-                src_metafile=original_delta,
+            return_value=past_timestamp
+        ):
+            original_delta: Delta = commit_results[5][1]
+            new_delta = Delta.update_for(original_delta)
+            txn_operations = [
+                TransactionOperation.of(
+                    operation_type=TransactionOperationType.UPDATE,
+                    dest_metafile=new_delta,
+                    src_metafile=original_delta,
+                )
+            ]
+            transaction = Transaction.of(
+                txn_type=TransactionType.ALTER,
+                txn_operations=txn_operations,
             )
-        ]
-        transaction = Transaction.of(
-            txn_type=TransactionType.ALTER,
-            txn_operations=txn_operations,
-        )
-        # expect the bad timestamp to be detected and its commit to fail
-        with pytest.raises(RuntimeError):
-            transaction.commit(temp_dir)
+            # expect the bad timestamp to be detected and its commit to fail
+            with pytest.raises(RuntimeError):
+                transaction.commit(temp_dir)
 
-    def test_txn_conflict_concurrent_complete(self, temp_dir, mocker):
+    def test_txn_conflict_concurrent_complete(self, temp_dir):
         commit_results = _commit_single_delta_table(temp_dir)
         for expected, actual, _ in commit_results:
             assert expected.equivalent_to(actual)
@@ -258,28 +259,28 @@ class TestMetafileIO:
         # conflict
         past_timestamp = time.time_ns() - NANOS_PER_SEC
         future_timestamp = 9999999999999
-        end_time_mock = mocker.patch(
-            "deltacat.storage.model.transaction.Transaction._parse_end_time",
-        )
-        end_time_mock.side_effect = (
-            lambda path: future_timestamp if mri.txn_id in path else past_timestamp
-        )
-        original_delta = Delta.read(orig_delta_write_path)
-        new_delta = Delta.update_for(original_delta)
-        txn_operations = [
-            TransactionOperation.of(
-                operation_type=TransactionOperationType.UPDATE,
-                dest_metafile=new_delta,
-                src_metafile=original_delta,
+        with patch(
+            "deltacat.storage.model.transaction.Transaction._parse_end_time"
+        ) as end_time_mock:
+            end_time_mock.side_effect = (
+                lambda path: future_timestamp if mri.txn_id in path else past_timestamp
             )
-        ]
-        transaction = Transaction.of(
-            txn_type=TransactionType.ALTER,
-            txn_operations=txn_operations,
-        )
-        # expect the commit to fail due to a concurrent modification error
-        with pytest.raises(RuntimeError):
-            transaction.commit(temp_dir)
+            original_delta = Delta.read(orig_delta_write_path)
+            new_delta = Delta.update_for(original_delta)
+            txn_operations = [
+                TransactionOperation.of(
+                    operation_type=TransactionOperationType.UPDATE,
+                    dest_metafile=new_delta,
+                    src_metafile=original_delta,
+                )
+            ]
+            transaction = Transaction.of(
+                txn_type=TransactionType.ALTER,
+                txn_operations=txn_operations,
+            )
+            # expect the commit to fail due to a concurrent modification error
+            with pytest.raises(RuntimeError):
+                transaction.commit(temp_dir)
 
     def test_txn_conflict_concurrent_incomplete(self, temp_dir):
         commit_results = _commit_single_delta_table(temp_dir)

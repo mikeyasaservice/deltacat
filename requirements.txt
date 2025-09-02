@@ -1,51 +1,61 @@
-# These are mirrored in setup.py as install_requires,
-# which is what the users of the DeltaCAT package will install. The rest of this file
-# sets up all the packages necessary for a /developer/ of Deltacat.
-#
-# In short, if you change it here, PLEASE also change it in setup.py.
+# DeltaCAT dependencies
+# This file is the single source of truth for dependencies.
+# setup.py automatically reads this file for install_requires.
+# Additional development dependencies are listed below.
 
 # AWS
-aws-embedded-metrics == 3.2.0
-boto3 ~= 1.34
+aws-embedded-metrics ==3.3.0
+boto3 ~=1.40.21
 
 # General
-daft == 0.4.15
-gcsfs == 2025.3.2
+daft ==0.5.22
+duckdb >= 1.1.0
+databricks-sdk >= 0.18.0
+deltalake >= 0.15.0
+gcsfs ==2025.7.0
 
 # GCP
 google-cloud-storage
 
 intervaltree == 3.1.0
-msgpack ~= 1.0.7
+msgpack ~=1.1.1
 
-numpy == 1.22.4
-pandas == 2.2.3
-polars == 1.28.1
+numpy >= 1.26.0
+pandas ==2.3.2
+polars ==1.33.0
 
 # upgrade to pyarrow 18.0.0 causes test
 # TestCompactionSession::test_compact_partition_when_incremental_then_rcf_stats_accurate to fail
 # due to input_inflation exceeding 1e-5
 
-# Daft requires pyarrow == 16.0.0.
-# TODO: upgrade version when Daft supports pyarrow > 16.0.0
-pyarrow == 16.0.0
+
+pyarrow ==21.0.0
 pydantic!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,!=2.4.*,<3
 
-# deltacat[iceberg]
-pyiceberg[glue] == 0.9.0
-
-# setup.py extras_require
-# any changes here should also be reflected in setup.py "extras_require"
+# Extra: deltacat[iceberg]
+pyiceberg[glue] ==0.9.1
 
 pymemcache == 4.0.0
-ray[default] == 2.46.0
-redis == 5.0.0
+ray[default] ==2.49.0
+redis ==6.4.0
 
-# setup.py extras_require
-# any changes here should also be reflected in setup.py "extras_require"
+# Extra: deltacat[s3fs]
+s3fs ==2025.7.0
+schedule ==1.2.2
+tenacity ==9.1.2
+typing-extensions ==4.15.0
 
-# deltacat[s3fs]
-s3fs == 2025.3.2
-schedule == 1.2.0
-tenacity == 8.2.3
-typing-extensions == 4.6.1
+# Development dependencies
+databricks-sdk >= 0.18.0
+deltalake >= 0.15.0
+pytest >= 7.0.0
+sqlalchemy ==2.0.43
+pyspark >= 3.5.1
+
+# Observability
+opentelemetry-api ==1.36.0
+opentelemetry-sdk ==1.36.0
+opentelemetry-exporter-otlp ==1.36.0
+opentelemetry-instrumentation ==0.57b0
+
+pymemcache ==4.0.0

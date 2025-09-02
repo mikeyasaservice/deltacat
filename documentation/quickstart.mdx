@@ -1,0 +1,230 @@
+---
+title: Quickstart
+description: Get up and running with DeltaCAT in 5 minutes
+---
+
+# Quickstart
+
+Get started with DeltaCAT in just a few minutes. This guide will walk you through installation, basic setup, and your first data operations.
+
+## Installation
+
+Install DeltaCAT using pip:
+
+```bash
+pip install deltacat
+```
+
+For Daft integration (recommended for distributed processing):
+
+```bash
+pip install deltacat daft
+```
+
+For Iceberg support:
+
+```bash
+pip install "deltacat[iceberg]"
+```
+
+## Basic Usage
+
+### Initialize DeltaCAT
+
+```python
+import deltacat
+
+# Initialize DeltaCAT
+deltacat.init()
+
+# Create a catalog
+catalog = deltacat.Catalog()
+```
+
+### Create and Query Tables
+
+```python
+import pandas as pd
+from deltacat import dcat
+
+# Create a sample DataFrame
+df = pd.DataFrame({
+    "id": [1, 2, 3, 4, 5],
+    "name": ["Alice", "Bob", "Charlie", "David", "Eve"],
+    "age": [25, 30, 35, 28, 32]
+})
+
+# Create a namespace (database)
+dcat.create_namespace("my_database")
+
+# Write DataFrame to a table
+dcat.write_to_table(
+    namespace="my_database",
+    table="users",
+    data=df
+)
+
+# Read the table back
+result = dcat.read_table(
+    namespace="my_database",
+    table="users"
+)
+
+print(result)
+```
+
+## Working with Daft
+
+DeltaCAT integrates seamlessly with Daft for distributed DataFrame operations:
+
+```python
+import daft
+from deltacat import DaftCatalog
+
+# Create a DaftCatalog
+daft_catalog = DaftCatalog(catalog, "my_catalog")
+daft.attach_catalog(daft_catalog, "my_catalog")
+
+# Create a Daft DataFrame
+df = daft.from_pydict({
+    "product_id": [1, 2, 3, 4, 5],
+    "product_name": ["Laptop", "Mouse", "Keyboard", "Monitor", "Headphones"],
+    "price": [999.99, 29.99, 79.99, 299.99, 149.99],
+    "category": ["Electronics", "Accessories", "Accessories", "Electronics", "Accessories"]
+})
+
+# Create a table using Daft
+daft_catalog.create_table("products", df)
+
+# Query with SQL
+result = daft.sql("""
+    SELECT category, AVG(price) as avg_price
+    FROM my_catalog.products
+    GROUP BY category
+""")
+
+result.show()
+```
+
+## Unified Compute Engine
+
+DeltaCAT automatically selects the best compute engine for your query:
+
+```python
+from deltacat.compute.engine import create_engine
+
+# Create a unified compute engine
+engine = create_engine()
+
+# Small query - automatically uses DuckDB
+small_result = engine.execute("""
+    SELECT * FROM my_database.users
+    WHERE age > 30
+""")
+
+# Large distributed query - automatically uses Daft
+large_result = engine.execute("""
+    SELECT category, COUNT(*) as count
+    FROM large_dataset.events
+    GROUP BY category
+""")
+```
+
+## Background Processing (New in 2.0)
+
+Execute long-running operations in the background with automatic orchestration:
+
+```python
+# Submit query for background execution
+job = deltacat.execute_query(
+    sql="SELECT * FROM huge_table WHERE year = 2024",
+    async_mode=True  # Returns immediately
+)
+
+print(f"Job ID: {job.id}")
+
+# Check status
+status = deltacat.get_query_status(job.id)
+print(f"Status: {status.state}")  # running, completed, failed
+
+# Get results when ready
+if status.state == "completed":
+    result = deltacat.get_query_result(job.id)
+```
+
+### Scheduled Operations
+
+Automate table maintenance and data ingestion:
+
+```python
+# Schedule daily table optimization
+deltacat.schedule_maintenance(
+    table="sales_fact",
+    schedule="0 2 * * *",  # 2 AM daily
+    operations=["optimize", "compact"]
+)
+
+# Schedule hourly data ingestion
+deltacat.schedule_ingestion(
+    source="s3://incoming/*.parquet",
+    target="staging_table",
+    schedule="0 * * * *"  # Every hour
+)
+```
+
+## Table Formats
+
+Work with different table formats seamlessly:
+
+```python
+from deltacat.storage.formats import detect_format, get_table_format
+
+# Detect format of existing table
+format_type = detect_format("s3://my-bucket/data/table")
+print(f"Table format: {format_type}")
+
+# Get format-specific handler
+table_format = get_table_format(format_type)
+
+# Read metadata
+metadata = table_format.read_metadata("s3://my-bucket/data/table")
+print(f"Schema: {metadata.schema}")
+print(f"Row count: {metadata.row_count}")
+```
+
+## Schema Evolution
+
+DeltaCAT supports schema evolution without rewriting data:
+
+```python
+# Add a new column
+dcat.alter_table(
+    namespace="my_database",
+    table="users",
+    add_columns=[("email", "string")]
+)
+
+# Rename a column
+dcat.alter_table(
+    namespace="my_database",
+    table="users",
+    rename_columns=[("age", "user_age")]
+)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Core Concepts" icon="book" href="/concepts/overview">
+    Understand DeltaCAT's architecture and components
+  </Card>
+  <Card title="Installation Guide" icon="download" href="/installation">
+    Detailed installation instructions and configuration
+  </Card>
+  <Card title="Table Operations" icon="table" href="/guides/table-operations">
+    Learn about advanced table operations
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    Complete API documentation
+  </Card>
+</CardGroup>
