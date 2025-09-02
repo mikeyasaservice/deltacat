@@ -223,16 +223,18 @@ class ConnectionPool(Generic[T]):
                         # Return connection to pool
                         pooled_conn.checked_out_at = None  # Mark as returned
                         with self._lock if self._lock else nullcontext():
-                            del self._in_use[id(pooled_conn.connection)]
-                            if pooled_conn.is_valid and not self._closed:
-                                self._pool.append(pooled_conn)
-                            else:
-                                try:
-                                    self.close_connection(pooled_conn.connection)
-                                except Exception as e:
-                                    logger.warning(f"Error returning connection to pool '{self.name}': {e}")
-                                finally:
-                                    self._created_count -= 1
+                            # Check if connection is still in use (might have been reclaimed)
+                            if id(pooled_conn.connection) in self._in_use:
+                                del self._in_use[id(pooled_conn.connection)]
+                                if pooled_conn.is_valid and not self._closed:
+                                    self._pool.append(pooled_conn)
+                                else:
+                                    try:
+                                        self.close_connection(pooled_conn.connection)
+                                    except Exception as e:
+                                        logger.warning(f"Error returning connection to pool '{self.name}': {e}")
+                                    finally:
+                                        self._created_count -= 1
                     return
                 
                 # Try to create a new connection if below max size
