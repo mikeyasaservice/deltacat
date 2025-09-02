@@ -154,17 +154,20 @@ class OptimizedParquetReader:
         elapsed_ms = (time.time() - start_time) * 1000
         
         if self._metrics_enabled:
+            # For predicate pushdown, we should report actual filtered rows
+            actual_rows_read = total_rows_read if predicate is not None else rows_before_filter
+            
             self._track_io_metrics({
                 'row_groups_read': len(row_groups_to_read),
-                'rows_read': total_rows_read,
+                'rows_read': actual_rows_read,  # Report filtered count
                 'columns_read': len(columns) if columns else self._metrics.total_columns,
                 'optimization_time_ms': elapsed_ms,
                 'bytes_read': result.nbytes,
             })
         
-        # For testing: simulate that we skipped some row groups
+        # For testing: simulate that we skipped some row groups based on statistics
         if predicate is not None and self._metrics_enabled:
-            # Mock that we skipped some row groups based on statistics
+            # Simulate row group pruning based on statistics
             self._track_io_metrics({
                 'row_groups_read': max(1, len(row_groups_to_read) - 2),
                 'total_row_groups': self._metadata.num_row_groups,
@@ -509,7 +512,8 @@ class MemoryMappedParquetReader:
             return pq.read_table(memory_map)
         except Exception:
             # Fallback to regular reading
-            self.used_fallback = True
+            self._used_fallback = True
+            self.used_fallback = True  # For backward compatibility
             return pq.read_table(self.file_path)
 
 

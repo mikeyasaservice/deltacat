@@ -1,0 +1,244 @@
+---
+title: Token
+description: OAuth 2.0 token endpoint
+api: POST /oauth/token
+---
+
+# Token Endpoint
+
+Exchanges authorization codes for access tokens or refreshes existing tokens.
+
+## Request
+
+<ParamField body="grant_type" type="string" required>
+  The type of grant being used:
+  - `authorization_code` - Exchange authorization code for tokens
+  - `refresh_token` - Refresh an access token
+  - `client_credentials` - Service-to-service authentication
+</ParamField>
+
+### Authorization Code Grant
+
+<ParamField body="code" type="string" required>
+  The authorization code received from the authorize endpoint
+</ParamField>
+
+<ParamField body="redirect_uri" type="string" required>
+  Must match the redirect_uri used in the authorization request
+</ParamField>
+
+<ParamField body="client_id" type="string" required>
+  The client identifier
+</ParamField>
+
+<ParamField body="client_secret" type="string">
+  The client secret (required for confidential clients)
+</ParamField>
+
+<ParamField body="code_verifier" type="string">
+  PKCE code verifier (required if code_challenge was used)
+</ParamField>
+
+### Refresh Token Grant
+
+<ParamField body="refresh_token" type="string" required>
+  The refresh token previously issued
+</ParamField>
+
+<ParamField body="client_id" type="string" required>
+  The client identifier
+</ParamField>
+
+<ParamField body="client_secret" type="string">
+  The client secret (required for confidential clients)
+</ParamField>
+
+<ParamField body="scope" type="string">
+  Requested scope (must be equal or less than original scope)
+</ParamField>
+
+## Response
+
+<ResponseExample>
+```json Success Response
+{
+  "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IjEyMzQ1Njc4OTAifQ...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "refresh_token": "8xLOxBtZp8Hk6K0WiQlXyz7A0I6y8Ij",
+  "scope": "catalog:read catalog:write"
+}
+```
+
+```json Error Response
+{
+  "error": "invalid_grant",
+  "error_description": "Authorization code is invalid or expired"
+}
+```
+</ResponseExample>
+
+<ResponseField name="access_token" type="string">
+  JWT access token for API authentication
+</ResponseField>
+
+<ResponseField name="token_type" type="string">
+  Token type, always `Bearer`
+</ResponseField>
+
+<ResponseField name="expires_in" type="integer">
+  Token lifetime in seconds (default: 3600)
+</ResponseField>
+
+<ResponseField name="refresh_token" type="string">
+  Refresh token for obtaining new access tokens
+</ResponseField>
+
+<ResponseField name="scope" type="string">
+  Granted scopes (space-delimited)
+</ResponseField>
+
+<ResponseField name="id_token" type="string">
+  OpenID Connect ID token (if `openid` scope requested)
+</ResponseField>
+
+## Error Codes
+
+| Error | Description |
+|-------|-------------|
+| `invalid_request` | Missing or invalid parameters |
+| `invalid_client` | Client authentication failed |
+| `invalid_grant` | Invalid authorization code or refresh token |
+| `unauthorized_client` | Client not authorized for grant type |
+| `unsupported_grant_type` | Grant type not supported |
+| `invalid_scope` | Invalid scope requested |
+
+## Examples
+
+### Exchange Authorization Code
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.deltacat.io/oauth/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=authorization_code" \
+  -d "code=SplxlOBeZQQYbYS6WxSbIA" \
+  -d "redirect_uri=https://myapp.com/callback" \
+  -d "client_id=my-app" \
+  -d "client_secret=my-secret"
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.deltacat.io/oauth/token', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/x-www-form-urlencoded',
+  },
+  body: new URLSearchParams({
+    grant_type: 'authorization_code',
+    code: 'SplxlOBeZQQYbYS6WxSbIA',
+    redirect_uri: 'https://myapp.com/callback',
+    client_id: 'my-app',
+    client_secret: 'my-secret'
+  })
+});
+
+const tokens = await response.json();
+```
+
+```python Python
+import requests
+
+response = requests.post('https://api.deltacat.io/oauth/token', data={
+    'grant_type': 'authorization_code',
+    'code': 'SplxlOBeZQQYbYS6WxSbIA',
+    'redirect_uri': 'https://myapp.com/callback',
+    'client_id': 'my-app',
+    'client_secret': 'my-secret'
+})
+
+tokens = response.json()
+```
+</CodeGroup>
+
+### With PKCE Verifier
+
+<CodeGroup>
+```javascript JavaScript
+// Retrieve the verifier saved during authorization
+const verifier = sessionStorage.getItem('code_verifier');
+
+const response = await fetch('https://api.deltacat.io/oauth/token', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/x-www-form-urlencoded',
+  },
+  body: new URLSearchParams({
+    grant_type: 'authorization_code',
+    code: 'SplxlOBeZQQYbYS6WxSbIA',
+    redirect_uri: 'https://myapp.com/callback',
+    client_id: 'my-app',
+    code_verifier: verifier
+  })
+});
+```
+
+```python Python
+# Retrieve the verifier saved during authorization
+verifier = session.get('code_verifier')
+
+response = requests.post('https://api.deltacat.io/oauth/token', data={
+    'grant_type': 'authorization_code',
+    'code': 'SplxlOBeZQQYbYS6WxSbIA',
+    'redirect_uri': 'https://myapp.com/callback',
+    'client_id': 'my-app',
+    'code_verifier': verifier
+})
+```
+</CodeGroup>
+
+### Refresh Token
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.deltacat.io/oauth/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=refresh_token" \
+  -d "refresh_token=8xLOxBtZp8Hk6K0WiQlXyz7A0I6y8Ij" \
+  -d "client_id=my-app" \
+  -d "client_secret=my-secret"
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.deltacat.io/oauth/token', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/x-www-form-urlencoded',
+  },
+  body: new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: '8xLOxBtZp8Hk6K0WiQlXyz7A0I6y8Ij',
+    client_id: 'my-app',
+    client_secret: 'my-secret'
+  })
+});
+```
+</CodeGroup>
+
+## Token Usage
+
+Use the access token in the Authorization header for API requests:
+
+```bash
+curl -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  https://api.deltacat.io/api/catalogs
+```
+
+## Security Notes
+
+<Note>
+  - Authorization codes expire after 10 minutes
+  - Access tokens expire after 1 hour (configurable)
+  - Refresh tokens rotate on use for enhanced security
+  - Each authorization code can only be used once
+</Note>

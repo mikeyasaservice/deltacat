@@ -50,23 +50,27 @@ class TestSpecificExceptionHandling:
         
         mock_dc_catalog = Mock()
         catalog = DaftCatalog(catalog=mock_dc_catalog, name="test_catalog")
-        with patch('deltacat.catalog.list_tables') as mock_list:
-            # Should handle CatalogOperationException
-            mock_list.side_effect = CatalogOperationException("Catalog error")
-            assert catalog._has_namespace("test_namespace") is False
-            
-            # Should handle TableNotFoundException
-            mock_list.side_effect = TableNotFoundException("Not found")
-            assert catalog._has_namespace("test_namespace") is False
-            
-            # Should handle NamespaceNotFoundError
-            mock_list.side_effect = NamespaceNotFoundError("Not found")
-            assert catalog._has_namespace("test_namespace") is False
-            
-            # Should re-raise unexpected exceptions
-            mock_list.side_effect = ValueError("Unexpected error")
-            with pytest.raises(ValueError):
-                catalog._has_namespace("test_namespace")
+        # Patch where it's used, not where it's defined
+        with patch.object(catalog, '_dc_catalog') as mock_dc:
+            mock_dc.name = "test_catalog"
+            mock_list_tables = Mock()
+            with patch('deltacat.catalog.daft.daft_catalog.dc_list_tables', mock_list_tables):
+                # Should handle CatalogOperationException
+                mock_list_tables.side_effect = CatalogOperationException("Catalog error")
+                assert catalog._has_namespace("test_namespace") is False
+                
+                # Should handle TableNotFoundException
+                mock_list_tables.side_effect = TableNotFoundException("Not found")
+                assert catalog._has_namespace("test_namespace") is False
+                
+                # Should handle NamespaceNotFoundError
+                mock_list_tables.side_effect = NamespaceNotFoundError("Not found")
+                assert catalog._has_namespace("test_namespace") is False
+                
+                # Should re-raise unexpected exceptions
+                mock_list_tables.side_effect = ValueError("Unexpected error")
+                with pytest.raises(ValueError):
+                    catalog._has_namespace("test_namespace")
     
     def test_catalog_daft_table_exists_handles_specific_exceptions(self):
         """Test that _has_table in daft catalog handles specific exceptions."""
@@ -133,22 +137,25 @@ class TestSpecificExceptionHandling:
     
     def test_sql_gateway_unregister_handles_specific_exceptions(self):
         """Test that SQL gateway unregister handles specific exceptions."""
-        from deltacat.sql.gateway import SQLGateway
+        from deltacat.sql.gateway import DeltaCATSQLGateway
+        from unittest.mock import Mock
         
-        gateway = SQLGateway()
-        gateway.connection = Mock()
-        
-        # Should handle specific DuckDB exceptions
-        import duckdb
-        
-        # Should silently handle when table doesn't exist
-        gateway.connection.unregister.side_effect = duckdb.CatalogException("Table not found")
-        gateway._cleanup_table("test_table")  # Should not raise
-        
-        # Should re-raise unexpected exceptions
-        gateway.connection.unregister.side_effect = ValueError("Unexpected")
-        with pytest.raises(ValueError):
-            gateway._cleanup_table("test_table")
+        # Mock the initialization check
+        with patch('deltacat.sql.gateway.raise_if_not_initialized'):
+            gateway = DeltaCATSQLGateway(auto_register_tables=False, use_connection_pool=False)
+            gateway.connection = Mock()
+            
+            # Should handle specific DuckDB exceptions
+            import duckdb
+            
+            # Should silently handle when table doesn't exist
+            gateway.connection.unregister.side_effect = duckdb.CatalogException("Table not found")
+            gateway._cleanup_table("test_table")  # Should not raise
+            
+            # Should re-raise unexpected exceptions
+            gateway.connection.unregister.side_effect = ValueError("Unexpected")
+            with pytest.raises(ValueError):
+                gateway._cleanup_table("test_table")
     
     def test_iceberg_format_init_handles_specific_exceptions(self):
         """Test that Iceberg format initialization handles specific exceptions."""
